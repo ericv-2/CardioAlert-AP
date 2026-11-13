@@ -39,3 +39,41 @@ El sistema debe cruzar automáticamente variables y tendencias, no solo valores 
   - Alertar oportunidad de **iSGLT2** (DM2 + eGFR >= 20, o no-DM2 + eGFR >= 20 + uACR >= 200 mg/g), **Estatina** (si eGFR < 60 sin tratamiento hipolipemiante, sin importar LDL), **IECA/ARA-II** (objetivo PAS 120-129 mmHg), **Finerenona** (DM2 + uACR >= 30 mg/g + K <= 4.8) o **Semaglutida** (DM2 + albuminuria).
   - **Aviso anti-inercia/anti-sobrecarga:** Mostrar nota clínica indicando que una caída inicial de eGFR < 30% tras iniciar iSGLT2/IECA es esperada y no requiere suspender fármaco, y que iSGLT2 no exige analítica extra de control. Alertar si toma AAS en prevención primaria sin ECV (Clase III).
   
+---
+
+## Estado actual del repo (actualizado 13/11/2026) — prevalece sobre lo anterior si hay conflicto
+
+### Estructura
+```
+connectors/   Capa de datos. base.py (interfaz Connector: get_patients, get_patient_data),
+              fhir_connector.py y csv_connector.py. Devuelven siempre el modelo de model/.
+model/        entitats.py (dataclasses Pacient, Analitica, Diagnostic, Medicacio, DadesPacient),
+              cataleg.py (LOINC, CIAP-2/CIE-10, grupos ATC), formules.py (CKD-EPI 2021).
+config/       rules.yaml: las 8 reglas con "enabled" y umbrales (pendientes de validar por el médico).
+scripts/      generate_patients.py: generador sintético (seed 42) -> data/synthetic/.
+data/synthetic/  fhir/ (un bundle FHIR R4 por paciente) y csv/ (patients, observations, conditions, medications).
+tests/        test_connectors.py (FHIR == CSV + 8 casos trampa), test_dades_sintetiques.py (coherencia).
+docs/         dades_sintetiques.md (criterios de generación), decisions.md (decisiones de diseño).
+engine/       Motor de reglas — PENDIENTE (vacío).
+api/          API — PENDIENTE (vacío).
+frontend/     Interfaz — PENDIENTE (vacío).
+```
+
+### Comandos
+- `pip install -r requirements.txt`
+- `python scripts/generate_patients.py` regenera los datos (determinista; no editar data/synthetic a mano).
+- `python -m pytest` ejecuta los tests.
+
+### Decisiones tomadas (detalle en docs/decisions.md)
+- **Dataset:** 100 pacientes sintéticos (no ~30 ni `pacientes_cupo.csv`), histórico nov 2022 - nov 2026,
+  fecha de referencia fija 13/11/2026. Los 8 casos trampa son P001-P008 (ver docs/dades_sintetiques.md).
+- **Escala de riesgo CV:** SCORE2/SCORE2-Diabetes por defecto, REGICOR configurable
+  (`risc_cardiovascular.escala: score2 | regicor | totes_dues`). Corte de riesgo alto >= 10%.
+  La escala es una pieza intercambiable del motor.
+- **FGe:** los datos se calculan con **CKD-EPI 2021** (model/formules.py). Arriba se indica CKD-EPI 2009:
+  discrepancia pendiente de resolver con el médico.
+- **Reglas en YAML:** umbrales en config/rules.yaml, nunca hardcodeados en el motor.
+- **Conectores:** el motor solo conoce la interfaz `Connector`; añadir una fuente = añadir un conector.
+- **Convenciones:** identificadores y docs en catalán; textos clínicos de los datos en castellano.
+  Códigos: LOINC (pruebas), CIAP-2 + CIE-10 (diagnósticos), ATC (fármacos, agrupados por prefijo).
+- **Git:** commit y push a main tras cada paso que funcione.
