@@ -1,0 +1,163 @@
+pacient_id,codi_ciap2,codi_cie10,nom,data
+P001,T90,E11,Diabetes mellitus tipo 2,2018-10-09
+P002,K86,I10,Hipertensión arterial,2015-03-10
+P003,T90,E11,Diabetes mellitus tipo 2,2019-05-14
+P003,K86,I10,Hipertensión arterial,2020-02-11
+P004,K86,I10,Hipertensión arterial,2014-09-16
+P005,P17,F17,Tabaquismo,1994-05-10
+P005,K86,I10,Hipertensión arterial,2016-04-12
+P005,T90,E11,Diabetes mellitus tipo 2,2017-06-13
+P005,T93,E78,Dislipemia,2018-02-20
+P006,K86,I10,Hipertensión arterial,2012-05-15
+P006,T90,E11,Diabetes mellitus tipo 2,2015-11-10
+P007,P17,F17,Tabaquismo,1993-05-10
+P007,K86,I10,Hipertensión arterial,2016-03-15
+P007,T90,E11,Diabetes mellitus tipo 2,2017-05-16
+P007,T93,E78,Dislipemia,2018-01-23
+P009,P17,F17,Tabaquismo,2008-06-30
+P009,T90,E11,Diabetes mellitus tipo 2,2019-10-11
+P012,T93,E78,Dislipemia,2012-09-05
+P013,P17,F17,Tabaquismo,2011-07-05
+P013,T93,E78,Dislipemia,2018-02-26
+P013,K86,I10,Hipertensión arterial,2022-06-17
+P013,K77,I50,Insuficiencia cardíaca,2023-12-14
+P014,K86,I10,Hipertensión arterial,2016-01-08
+P014,K77,I50,Insuficiencia cardíaca,2024-05-15
+P014,T90,E11,Diabetes mellitus tipo 2,2024-06-17
+P014,U99.01,N18,Enfermedad renal crónica,2025-01-13
+P016,T90,E11,Diabetes mellitus tipo 2,2020-06-08
+P016,U99.01,N18,Enfermedad renal crónica,2024-01-08
+P017,K86,I10,Hipertensión arterial,2011-12-14
+P018,T93,E78,Dislipemia,2024-04-10
+P019,T93,E78,Dislipemia,2012-04-13
+P019,K86,I10,Hipertensión arterial,2021-05-06
+P020,T93,E78,Dislipemia,2023-05-08
+P022,K86,I10,Hipertensión arterial,2018-06-26
+P022,U99.01,N18,Enfermedad renal crónica,2025-04-24
+P023,P17,F17,Tabaquismo,2008-08-25
+P023,T90,E11,Diabetes mellitus tipo 2,2019-08-12
+P024,K86,I10,Hipertensión arterial,2013-07-01
+P024,K77,I50,Insuficiencia cardíaca,2022-04-15
+P024,U99.01,N18,Enfermedad renal crónica,2023-11-17
+P024,T93,E78,Dislipemia,2024-12-12
+P025,T93,E78,Dislipemia,2018-10-18
+P027,K86,I10,Hipertensión arterial,2018-01-22
+P028,T90,E11,Diabetes mellitus tipo 2,2012-10-22
+P030,K86,I10,Hipertensión arterial,2021-11-08
+P030,T90,E11,Diabetes mellitus tipo 2,2023-05-08
+P032,K86,I10,Hipertensión arterial,2018-01-18
+P032,T93,E78,Dislipemia,2019-02-28
+P033,T90,E11,Diabetes mellitus tipo 2,2018-02-26
+P033,P17,F17,Tabaquismo,2024-09-09
+P035,T93,E78,Dislipemia,2019-08-26
+P037,P17,F17,Tabaquismo,2019-12-23
+P037,K86,I10,Hipertensión arterial,2024-05-21
+P037,T93,E78,Dislipemia,2024-06-27
+P038,T93,E78,Dislipemia,2021-06-28
+P039,K86,I10,Hipertensión arterial,2015-01-07
+P039,U99.01,N18,Enfermedad renal crónica,2021-10-25
+P039,T93,E78,Dislipemia,2022-07-21
+P040,P17,F17,Tabaquismo,2016-01-25
+P040,T93,E78,Dislipemia,2023-07-21
+P043,P17,F17,Tabaquismo,2010-09-22
+P043,T90,E11,Diabetes mellitus tipo 2,2018-05-14
+P043,U99.01,N18,Enfermedad renal crónica,2023-12-01
+P044,T93,E78,Dislipemia,2015-08-17
+P045,T93,E78,Dislipemia,2014-07-28
+P045,P17,F17,Tabaquismo,2018-02-16
+P046,T93,E78,Dislipemia,2011-12-19
+P046,P17,F17,Tabaquismo,2012-10-04
+P047,T90,E11,Diabetes mellitus tipo 2,2012-06-06
+P048,T93,E78,Dislipemia,2013-06-03
+P048,P17,F17,Tabaquismo,2021-06-07
+P048,K86,I10,Hipertensión arterial,2023-07-24
+P051,T90,E11,Diabetes mellitus tipo 2,2016-03-16
+P051,T93,E78,Dislipemia,2025-03-06
+P052,P17,F17,Tabaquismo,2013-04-10
+P052,T93,E78,Dislipemia,2021-08-23
+P052,T90,E11,Diabetes mellitus tipo 2,2022-10-25
+P053,K86,I10,Hipertensión arterial,2014-12-22
+P053,T90,E11,Diabetes mellitus tipo 2,2019-01-17
+P053,P17,F17,Tabaquismo,2020-12-28
+P053,U99.01,N18,Enfermedad renal crónica,2022-09-19
+P054,T90,E11,Diabetes mellitus tipo 2,2021-09-27
+P054,U99.01,N18,Enfermedad renal crónica,2023-05-22
+P054,T93,E78,Dislipemia,2025-04-28
+P055,T90,E11,Diabetes mellitus tipo 2,2018-10-18
+P055,T93,E78,Dislipemia,2019-04-22
+P056,P17,F17,Tabaquismo,2010-03-16
+P056,T93,E78,Dislipemia,2024-06-03
+P057,T93,E78,Dislipemia,2016-03-04
+P058,K86,I10,Hipertensión arterial,2013-01-07
+P058,U99.01,N18,Enfermedad renal crónica,2021-06-11
+P058,T90,E11,Diabetes mellitus tipo 2,2022-06-16
+P058,K77,I50,Insuficiencia cardíaca,2023-12-18
+P058,T93,E78,Dislipemia,2025-04-23
+P059,K86,I10,Hipertensión arterial,2024-12-04
+P059,U99.01,N18,Enfermedad renal crónica,2025-05-19
+P060,T90,E11,Diabetes mellitus tipo 2,2016-04-18
+P060,U99.01,N18,Enfermedad renal crónica,2022-01-31
+P061,T93,E78,Dislipemia,2013-09-25
+P062,T90,E11,Diabetes mellitus tipo 2,2018-01-17
+P062,T93,E78,Dislipemia,2019-02-06
+P062,K77,I50,Insuficiencia cardíaca,2020-12-07
+P062,K86,I10,Hipertensión arterial,2023-05-15
+P064,K86,I10,Hipertensión arterial,2012-11-07
+P064,T93,E78,Dislipemia,2023-03-17
+P065,P17,F17,Tabaquismo,2012-03-20
+P065,T90,E11,Diabetes mellitus tipo 2,2022-05-11
+P066,U99.01,N18,Enfermedad renal crónica,2022-03-08
+P066,K86,I10,Hipertensión arterial,2022-08-29
+P068,K86,I10,Hipertensión arterial,2022-10-27
+P068,T93,E78,Dislipemia,2024-04-15
+P070,T93,E78,Dislipemia,2012-08-13
+P070,K86,I10,Hipertensión arterial,2016-09-05
+P070,T90,E11,Diabetes mellitus tipo 2,2017-11-22
+P071,T93,E78,Dislipemia,2020-01-16
+P072,K86,I10,Hipertensión arterial,2012-11-26
+P072,T90,E11,Diabetes mellitus tipo 2,2013-09-18
+P072,T93,E78,Dislipemia,2014-05-26
+P072,U99.01,N18,Enfermedad renal crónica,2025-10-20
+P073,K86,I10,Hipertensión arterial,2011-12-09
+P073,T90,E11,Diabetes mellitus tipo 2,2012-03-20
+P074,P17,F17,Tabaquismo,2007-10-16
+P074,T93,E78,Dislipemia,2020-06-12
+P076,K86,I10,Hipertensión arterial,2014-01-27
+P077,P17,F17,Tabaquismo,2020-04-13
+P077,T90,E11,Diabetes mellitus tipo 2,2021-06-15
+P077,U99.01,N18,Enfermedad renal crónica,2023-03-13
+P079,U99.01,N18,Enfermedad renal crónica,2021-11-10
+P079,K86,I10,Hipertensión arterial,2024-07-26
+P080,P17,F17,Tabaquismo,2020-05-04
+P081,T90,E11,Diabetes mellitus tipo 2,2013-10-03
+P081,K86,I10,Hipertensión arterial,2013-10-28
+P081,U99.01,N18,Enfermedad renal crónica,2022-05-11
+P081,T93,E78,Dislipemia,2022-08-01
+P083,T93,E78,Dislipemia,2014-05-27
+P083,P17,F17,Tabaquismo,2014-07-18
+P083,K86,I10,Hipertensión arterial,2022-03-03
+P083,U99.01,N18,Enfermedad renal crónica,2025-08-11
+P085,T93,E78,Dislipemia,2012-07-09
+P085,P17,F17,Tabaquismo,2014-02-20
+P086,T93,E78,Dislipemia,2017-04-03
+P086,K86,I10,Hipertensión arterial,2017-07-18
+P087,P17,F17,Tabaquismo,2009-10-09
+P087,K86,I10,Hipertensión arterial,2017-07-31
+P087,T90,E11,Diabetes mellitus tipo 2,2021-04-22
+P087,U99.01,N18,Enfermedad renal crónica,2024-11-15
+P088,T93,E78,Dislipemia,2019-11-29
+P088,U99.01,N18,Enfermedad renal crónica,2024-07-09
+P088,K86,I10,Hipertensión arterial,2025-05-30
+P089,T93,E78,Dislipemia,2012-10-31
+P090,K86,I10,Hipertensión arterial,2012-08-10
+P091,T93,E78,Dislipemia,2018-02-13
+P092,T93,E78,Dislipemia,2023-09-15
+P093,T90,E11,Diabetes mellitus tipo 2,2015-11-09
+P093,K86,I10,Hipertensión arterial,2018-06-21
+P093,P17,F17,Tabaquismo,2018-08-20
+P094,T93,E78,Dislipemia,2022-05-12
+P094,U99.01,N18,Enfermedad renal crónica,2023-05-22
+P094,K86,I10,Hipertensión arterial,2024-05-10
+P096,K86,I10,Hipertensión arterial,2016-12-23
+P096,P17,F17,Tabaquismo,2023-04-06
+P097,K86,I10,Hipertensión arterial,2016-08-26
