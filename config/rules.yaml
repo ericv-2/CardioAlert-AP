@@ -1,0 +1,76 @@
+# Regles del motor cardio-renal-metabòlic.
+# Cada regla es pot desactivar amb "enabled: false" i els llindars es canvien aquí,
+# sense tocar codi. TOTS ELS VALORS ESTAN PENDENTS DE VALIDACIÓ PEL METGE.
+#
+# Codis: diagnòstics en CIAP-2, proves en LOINC, fàrmacs per grup (vegeu model/cataleg.py).
+
+rules:
+
+  uacr_falta:
+    enabled: true
+    descripcio: Diabètic, hipertens o MRC sense UACR en més de 12 mesos
+    diagnostics: [T90, K86, U99.01]   # DM2, HTA, MRC (n'hi ha prou amb un)
+    prova: "9318-7"                   # UACR
+    max_mesos_sense_prova: 12
+
+  creatinina_falta:
+    enabled: true
+    descripcio: Pacient crònic sense creatinina en més de 12 mesos
+    diagnostics: [T90, K86, U99.01, K77, T93]   # DM2, HTA, MRC, IC, dislipèmia
+    prova: "2160-0"                   # creatinina
+    max_mesos_sense_prova: 12
+
+  fge_descens:
+    enabled: true
+    descripcio: Pèrdua ràpida de filtrat glomerular
+    prova: "62238-1"                  # FGe
+    descens_anual_llindar: 5.0        # mL/min/1,73m² per any (alerta si la pèrdua és superior)
+    descens_fisiologic: [0.5, 1.0]    # mL/min/1,73m² per any (referència, informatiu)
+    min_mesures: 3
+    min_mesos_seguiment: 12
+
+  albuminuria_sense_accio:
+    enabled: true
+    descripcio: Albuminúria sense tractament nefroprotector
+    prova: "9318-7"
+    uacr_llindar: 30                  # mg/g (alerta si UACR >= llindar)
+    grups_protectors: [IECA, ARA-II, iSGLT2]   # n'hi ha prou amb un per no alertar
+
+  mrc_no_diagnosticada:
+    enabled: true
+    descripcio: Criteris analítics de MRC sense diagnòstic registrat
+    fge_llindar: 60                   # mL/min/1,73m² (criteri si FGe < llindar)
+    uacr_llindar: 30                  # mg/g (criteri si UACR >= llindar)
+    min_mesures: 2
+    min_mesos_separacio: 3
+    diagnostic_excloent: U99.01       # MRC
+
+  possible_ic:
+    enabled: true
+    descripcio: NT-proBNP elevat per a l'edat sense diagnòstic d'insuficiència cardíaca
+    prova: "33762-6"                  # NT-proBNP
+    llindars_per_edat:                # pg/mL (alerta si valor >= llindar)
+      - {edat_max: 49, llindar: 125}  # < 50 anys
+      - {edat_max: 75, llindar: 250}  # 50-75 anys
+      - {edat_max: 200, llindar: 500} # > 75 anys
+    diagnostic_excloent: K77          # IC
+
+  risc_cardiovascular:
+    enabled: true
+    descripcio: Risc cardiovascular alt segons l'escala configurada
+    escala: score2                    # score2 | regicor | totes_dues (mode de transició)
+    llindar_risc_alt: 10              # % (risc alt si >= llindar)
+
+  ben_tractat:
+    enabled: true
+    descripcio: Pacient amb tractament i objectius correctes (control positiu)
+    ieca_ara2_i_isglt2_si: [T90, U99.01]        # IECA o ARA-II + iSGLT2 si DM o MRC
+    grups_bloqueig_sraa: [IECA, ARA-II]
+    grup_isglt2: iSGLT2
+    estatina_si_risc_alt: true
+    estatina_si_dislipemia: true                # diagnòstic T93
+    hba1c_objectiu: 7.0                         # % (objectiu: < valor)
+    pressio_objectiu: {sistolica: 140, diastolica: 90}            # mmHg (objectiu: < valors)
+    pressio_objectiu_diabetics: {sistolica: 130, diastolica: 80}  # mmHg
+    proves_recents: ["9318-7", "2160-0"]        # UACR i creatinina
+    max_mesos_proves: 12
