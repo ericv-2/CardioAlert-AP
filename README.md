@@ -1,3 +1,13 @@
+# The GOATS - Equip 34
+
+## Membres
+
+- Pau Riera
+- Èric Vargas
+- David Cebotari
+
+---
+
 # Hackathon Project Repository
 
 Welcome! This is your team's repository for developing and delivering your hackathon project.
