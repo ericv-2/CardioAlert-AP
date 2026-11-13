@@ -22,6 +22,7 @@ class Analitica:
     valor: float
     unitat: str
     data: date
+    origen: str | None = None  # sistema d'origen del registre (p. ex. "eCAP - Catalunya", "DIRAYA - Andalucía")
 
 
 @dataclass(frozen=True)

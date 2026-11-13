@@ -49,6 +49,12 @@ Referència real: cohort REGICOR (De Gano et al., *Int J Epidemiol* 2025, doi 10
 | Pressió sistòlica | 8480-6 | mmHg |
 | Pressió diastòlica | 8462-4 | mmHg |
 
+## Sistema d'origen
+
+Cada analítica porta el sistema d'origen (`origen`): per defecte "eCAP - Catalunya"; l'NT-proBNP,
+"Lab. Hospital". L'analítica del 15/04/2025 de José Fernández (primer UACR alterat, 45 mg/g) ve de
+"DIRAYA - Andalucía": sense aquesta dada l'albuminúria no quedaria confirmada.
+
 ## Coherència clínica
 
 - **El FGe no es genera: es calcula** amb CKD-EPI 2021 a partir de la creatinina (2 decimals), l'edat
@@ -85,7 +91,7 @@ Fixats a mà (sense soroll), IDs `P001`-`P008`. Cada un està pensat per a una r
 |---|---|---|---|
 | 1 | Antonio García, 64, H | DM2 fa 8 anys, HbA1c 6,8-7,0%, pressió correcta, metformina. Últim UACR: nov. 2023 | `uacr_falta` |
 | 2 | Rosa Martínez, 71, D | HTA (enalapril). FGe 85→78→71→64 (2023-2026), creatinina 0,76→0,95 ("normal") | `fge_descens` |
-| 3 | José Fernández, 58, H | DM2+HTA, UACR 45 (2025) i 52 (2026), només metformina | `albuminuria_sense_accio` |
+| 3 | José Fernández, 58, H | DM2+HTA, UACR 45 (2025, DIRAYA) i 52 (2026, eCAP), només metformina | `albuminuria_sense_accio` |
 | 4 | Pilar López, 67, D | HTA (amlodipí). FGe 55 i 52 separats 6 mesos, UACR 40, sense diagnòstic de MRC | `mrc_no_diagnosticada` |
 | 5 | Manuel Sánchez, 62, H | Fumador, HTA+DM2+dislipèmia, 138/88, HbA1c 6,9%, LDL 125; sense estatina, IECA ni iSGLT2 | `risc_cardiovascular` |
 | 6 | Dolores Ruiz, 74, D | HTA+DM2, NT-proBNP 450, sense diagnòstic d'IC | `possible_ic` |
@@ -95,6 +101,6 @@ Fixats a mà (sense soroll), IDs `P001`-`P008`. Cada un està pensat per a una r
 ## Preguntes obertes per al metge
 
 1. Són realistes els valors i les trajectòries dels casos trampa?
-2. CKD-EPI 2021 o 2009 sense factor racial? (vegeu `docs/decisions.md`)
+2. Resolt: el motor fa servir CKD-EPI 2009 sense factor racial (vegeu `docs/decisions.md`).
 3. Les justificacions fàrmac-diagnòstic són massa estrictes? (p. ex. estatina en DM2 sense dislipèmia)
 4. Els llindars de `config/rules.yaml` són correctes?

@@ -47,22 +47,50 @@ El sistema debe cruzar automáticamente variables y tendencias, no solo valores 
 ```
 connectors/   Capa de datos. base.py (interfaz Connector: get_patients, get_patient_data),
               fhir_connector.py y csv_connector.py. Devuelven siempre el modelo de model/.
-model/        entitats.py (dataclasses Pacient, Analitica, Diagnostic, Medicacio, DadesPacient),
-              cataleg.py (LOINC, CIAP-2/CIE-10, grupos ATC), formules.py (CKD-EPI 2021).
-config/       rules.yaml: las 8 reglas con "enabled" y umbrales (pendientes de validar por el médico).
+model/        entitats.py (dataclasses Pacient, Analitica [con `origen`], Diagnostic, Medicacio, DadesPacient),
+              cataleg.py (LOINC, CIAP-2/CIE-10, grupos ATC), formules.py (CKD-EPI 2009 y 2021).
+config/       rules.yaml: `rules` (las 8 reglas con "enabled", umbrales, "evidencia" y "pes") y `motor`
+              (ecuación FGe, fecha de referencia, FRA, derivación, oportunidades terapéuticas, prioridad).
+              Todo pendiente de validar por el médico.
+engine/       Motor de reglas determinista (ver "Motor de reglas" más abajo).
 scripts/      generate_patients.py: generador sintético (seed 42) -> data/synthetic/.
 data/synthetic/  fhir/ (un bundle FHIR R4 por paciente) y csv/ (patients, observations, conditions, medications).
-tests/        test_connectors.py (FHIR == CSV + 8 casos trampa), test_dades_sintetiques.py (coherencia).
+tests/        test_connectors.py (FHIR == CSV + 8 casos trampa), test_dades_sintetiques.py (coherencia),
+              test_engine.py (fórmulas, 8 casos trampa, controles, cambio de escala, reglas a mano).
 docs/         dades_sintetiques.md (criterios de generación), decisions.md (decisiones de diseño).
-engine/       Motor de reglas — PENDIENTE (vacío).
 api/          API — PENDIENTE (vacío).
 frontend/     Interfaz — PENDIENTE (vacío).
 ```
 
 ### Comandos
+- Requiere Python >= 3.10. Si el `python` del PATH es más antiguo, crear un venv local
+  (`py -3.14 -m venv .venv`) y usar `.venv/Scripts/python`.
 - `pip install -r requirements.txt`
 - `python scripts/generate_patients.py` regenera los datos (determinista; no editar data/synthetic a mano).
 - `python -m pytest` ejecuta los tests.
+- `python -m engine` resume el cupo priorizado; `python -m engine P003` imprime la nota clínica de un paciente.
+
+### Motor de reglas (`engine/`)
+- `risk_engine.py`: `RiskEngine(connector, config=rules.yaml, data_referencia=None)` con `avalua(id)`,
+  `avalua_cupo()` (ordenado por prioridad) y `avalua_dades(DadesPacient)`. Devuelve `ResultatPacient`:
+  `nivell_risc` (ALT/MITJA/BAIX), `puntuacio_prioritat` (0-100), `categoria_kdigo`, `risc_kdigo`, `estat_renal`,
+  `fge_actual`, `uacr_actual`, `pendent_fge`, `kfre_5a`, `risc_cv`, `alertes_actives` (`Alerta`: regla, motiu,
+  evidencia "Clase X - ESC/ERA 2026", pes, fonts), `accions_recomanades` (`Accio` con `nota` anti-inercia),
+  `avisos`, `ben_tractat`, `objectius_pendents`, `resum` (1 línea), `fonts_dades`, `nota_clinica_auto`.
+- `renal.py`: funciones puras — categorías y matriz KDIGO, cronicidad (>= 2 medidas separadas >= 3 meses),
+  pendiente del FGe (regresión lineal), caída aguda (FRA) y KFRE de 4 variables.
+- `escales.py`: registro `ESCALES` (`score2` = SCORE2 / SCORE2-Diabetes / SCORE2-OP, `regicor`) y
+  `ckd_addon` (SCORE2 CKD Add-on). Añadir una escala = añadir una función al registro.
+- El motor **recalcula el FGe desde la creatinina** con `motor.equacio_fge` (CKD-EPI 2009 sin factor racial);
+  no usa el FGe informado por el laboratorio (que en los datos sintéticos es CKD-EPI 2021).
+- Alertas: las 7 reglas de `rules` + `possible_fra`, `derivacio_nefrologia` y `aas_prevencio_primaria`
+  (sección `motor`). `ben_tractat` es el control positivo: con RCV alto pero tratamiento y objetivos
+  correctos NO se alerta. Las oportunidades terapéuticas (iSGLT2, IECA/ARA-II, estatina, PA, finerenona,
+  arGLP-1) generan acciones, no alertas.
+- `puntuacio_prioritat` = suma de `pes` de las alertas + peso KDIGO (máx. 100); niveles según `motor.prioritat`.
+- Textos de salida (alertas, acciones, nota) en castellano; cero umbrales en el código.
+- Coeficientes de SCORE2/SCORE2-OP/SCORE2-Diabetes/CKD Add-on contrastados con el paquete R RiskScorescvd;
+  los de REGICOR y KFRE y las clases de evidencia de `rules.yaml` están pendientes de verificar con el médico.
 
 ### Decisiones tomadas (detalle en docs/decisions.md)
 - **Dataset:** 100 pacientes sintéticos (no ~30 ni `pacientes_cupo.csv`), histórico nov 2022 - nov 2026,
@@ -70,8 +98,12 @@ frontend/     Interfaz — PENDIENTE (vacío).
 - **Escala de riesgo CV:** SCORE2/SCORE2-Diabetes por defecto, REGICOR configurable
   (`risc_cardiovascular.escala: score2 | regicor | totes_dues`). Corte de riesgo alto >= 10%.
   La escala es una pieza intercambiable del motor.
-- **FGe:** los datos se calculan con **CKD-EPI 2021** (model/formules.py). Arriba se indica CKD-EPI 2009:
-  discrepancia pendiente de resolver con el médico.
+- **FGe:** el motor usa **CKD-EPI 2009 sin factor racial** (configurable en `motor.equacio_fge`). El FGe
+  guardado en los datos sintéticos sigue siendo el "informado por el laboratorio" con CKD-EPI 2021; el motor
+  lo ignora y recalcula (p. ej. Pilar López: 52 informado -> 49 con la 2009).
+- **Origen de los datos:** cada `Analitica` lleva `origen` (columna `origen` en CSV, `Observation.performer`
+  en FHIR). Por defecto "eCAP - Catalunya"; NT-proBNP "Lab. Hospital"; la analítica de 2025 de José
+  Fernández (P003) viene de "DIRAYA - Andalucía" y es la que permite confirmar su albuminuria.
 - **Reglas en YAML:** umbrales en config/rules.yaml, nunca hardcodeados en el motor.
 - **Conectores:** el motor solo conoce la interfaz `Connector`; añadir una fuente = añadir un conector.
 - **Convenciones:** identificadores y docs en catalán; textos clínicos de los datos en castellano.

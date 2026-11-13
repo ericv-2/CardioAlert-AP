@@ -53,9 +53,16 @@ COGNOMS = ["González", "Rodríguez", "Pérez", "Gómez", "Martín", "Hernández
 # Constructors bàsics
 # ---------------------------------------------------------------------------
 
-def analitica(clau: str, valor: float, data: date) -> Analitica:
+# Sistema d'origen de cada registre (capa d'interoperabilitat HL7 FHIR simulada)
+ORIGEN_AP = "eCAP - Catalunya"  # història clínica d'atenció primària del cupo
+ORIGEN_HOSPITAL = "Lab. Hospital"  # proves que només fa el laboratori hospitalari
+ORIGEN_DIRAYA = "DIRAYA - Andalucía"  # analítica feta en una altra comunitat autònoma
+ORIGEN_PER_PROVA = {"ntprobnp": ORIGEN_HOSPITAL}
+
+
+def analitica(clau: str, valor: float, data: date, origen: str | None = None) -> Analitica:
     p = PROVES[clau]
-    return Analitica(p.loinc, p.nom, float(valor), p.unitat, data)
+    return Analitica(p.loinc, p.nom, float(valor), p.unitat, data, origen or ORIGEN_PER_PROVA.get(clau, ORIGEN_AP))
 
 
 def diagnostic(clau: str, data: date) -> Diagnostic:
@@ -69,29 +76,32 @@ def medicacio(nom: str, atc: str, data: date) -> Medicacio:
 
 def visita(pac: Pacient, data: date, *, creatinina: float, pas: float, pad: float, ldl: float, hdl: float,
            tg: float, k: float, glucosa: float, hba1c: float | None = None, uacr: float | None = None,
-           ntprobnp: float | None = None) -> list[Analitica]:
-    """Analítica completa d'una visita. El FGe SEMPRE es calcula de la creatinina (CKD-EPI 2021)."""
+           ntprobnp: float | None = None, origen: str | None = None) -> list[Analitica]:
+    """Analítica completa d'una visita. El FGe SEMPRE es calcula de la creatinina (CKD-EPI 2021).
+
+    origen: sistema d'on ve tota la visita (per defecte, eCAP; l'NT-proBNP, el laboratori hospitalari).
+    """
     creatinina = round(creatinina, 2)
     fge = round(ckd_epi_2021(creatinina, edat_en(pac.data_naixement, data), pac.sexe))
     ldl, hdl, tg = round(ldl), round(hdl), round(tg)
     res = [
-        analitica("creatinina", creatinina, data),
-        analitica("fge", fge, data),
-        analitica("glucosa", round(glucosa), data),
-        analitica("colesterol_total", ldl + hdl + round(tg / 5), data),  # coherent amb Friedewald
-        analitica("ldl", ldl, data),
-        analitica("hdl", hdl, data),
-        analitica("trigliceridos", tg, data),
-        analitica("potasio", round(k, 1), data),
-        analitica("pas", round(pas), data),
-        analitica("pad", round(pad), data),
+        analitica("creatinina", creatinina, data, origen),
+        analitica("fge", fge, data, origen),
+        analitica("glucosa", round(glucosa), data, origen),
+        analitica("colesterol_total", ldl + hdl + round(tg / 5), data, origen),  # coherent amb Friedewald
+        analitica("ldl", ldl, data, origen),
+        analitica("hdl", hdl, data, origen),
+        analitica("trigliceridos", tg, data, origen),
+        analitica("potasio", round(k, 1), data, origen),
+        analitica("pas", round(pas), data, origen),
+        analitica("pad", round(pad), data, origen),
     ]
     if hba1c is not None:
-        res.append(analitica("hba1c", round(hba1c, 1), data))
+        res.append(analitica("hba1c", round(hba1c, 1), data, origen))
     if uacr is not None:
-        res.append(analitica("uacr", round(uacr), data))
+        res.append(analitica("uacr", round(uacr), data, origen))
     if ntprobnp is not None:
-        res.append(analitica("ntprobnp", round(ntprobnp), data))
+        res.append(analitica("ntprobnp", round(ntprobnp), data, origen))
     return res
 
 
@@ -160,7 +170,9 @@ def casos_trampa() -> list[DadesPacient]:
             _v("2026-03-17", 64, 134, 82, 119, 58, 112, 4.6, 93, uacr=12),
         ], fge_exacte=True))
 
-    # 3) DM2+HTA amb albuminúria confirmada (45 i 52) i només metformina
+    # 3) DM2+HTA amb albuminúria confirmada (45 i 52) i només metformina.
+    #    El primer UACR alterat (2025) es va fer a Andalusia: l'albuminúria només es confirma
+    #    (2 mesures separades > 3 mesos) si es creuen les dades de DIRAYA amb les d'eCAP.
     casos.append(_trampa(
         3, "José Fernández", 58, "H", False, date(1968, 6, 15),
         [("dm2", "2019-05-14"), ("hta", "2020-02-11")],
@@ -170,7 +182,7 @@ def casos_trampa() -> list[DadesPacient]:
             _v("2023-10-17", 93, 144, 90, 115, 43, 158, 4.4, 148, hba1c=7.2),
             _v("2024-04-16", 92, 140, 88, 110, 45, 146, 4.3, 145, hba1c=7.1, uacr=24),
             _v("2024-10-15", 91, 146, 90, 114, 44, 152, 4.5, 151, hba1c=7.3),
-            _v("2025-04-15", 91, 142, 86, 111, 44, 149, 4.4, 147, hba1c=7.2, uacr=45),
+            _v("2025-04-15", 91, 142, 86, 111, 44, 149, 4.4, 147, hba1c=7.2, uacr=45, origen=ORIGEN_DIRAYA),
             _v("2025-10-14", 90, 144, 88, 116, 43, 155, 4.4, 153, hba1c=7.4),
             _v("2026-04-14", 89, 142, 88, 113, 44, 150, 4.5, 149, hba1c=7.2, uacr=52),
         ]))
@@ -550,6 +562,7 @@ def bundle_fhir(dades: DadesPacient) -> dict:
             "effectiveDateTime": a.data.isoformat(),
             "valueQuantity": {"value": a.valor, "unit": a.unitat, "system": "http://unitsofmeasure.org",
                               "code": prova.ucum},
+            **({"performer": [{"display": a.origen}]} if a.origen else {}),  # sistema d'origen
         })
     for i, d in enumerate(dades.diagnostics, 1):
         recursos.append({
@@ -609,8 +622,8 @@ def escriu_csv(pacients: list[DadesPacient], carpeta: Path) -> None:
     _escriu_csv(carpeta / "patients.csv", ["id", "nom", "data_naixement", "edat", "sexe", "fumador"],
                 [[d.pacient.id, d.pacient.nom, d.pacient.data_naixement.isoformat(), d.pacient.edat, d.pacient.sexe,
                   int(d.pacient.fumador)] for d in pacients])
-    _escriu_csv(carpeta / "observations.csv", ["pacient_id", "codi_loinc", "nom", "valor", "unitat", "data"],
-                [[d.pacient.id, a.codi_loinc, a.nom, a.valor, a.unitat, a.data.isoformat()]
+    _escriu_csv(carpeta / "observations.csv", ["pacient_id", "codi_loinc", "nom", "valor", "unitat", "data", "origen"],
+                [[d.pacient.id, a.codi_loinc, a.nom, a.valor, a.unitat, a.data.isoformat(), a.origen or ""]
                  for d in pacients for a in d.analitiques])
     _escriu_csv(carpeta / "conditions.csv", ["pacient_id", "codi_ciap2", "codi_cie10", "nom", "data"],
                 [[d.pacient.id, x.codi_ciap2, x.codi_cie10, x.nom, x.data.isoformat()]

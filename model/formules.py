@@ -31,3 +31,14 @@ def creatinina_per_fge(fge: float, edat: int, sexe: str) -> float:
     if ratio <= 1:
         return kappa * ratio ** (-1 / 1.200)
     return kappa * ratio ** (1 / alfa)
+
+
+def ckd_epi_2009(creatinina_mg_dl: float, edat: int, sexe: str) -> float:
+    """FGe (mL/min/1,73m²) amb CKD-EPI 2009 SENSE factor racial (recomanada a Europa)."""
+    kappa, alfa, f_sexe = (0.7, -0.329, 1.018) if sexe == "D" else (0.9, -0.411, 1.0)
+    r = creatinina_mg_dl / kappa
+    return 141 * min(r, 1) ** alfa * max(r, 1) ** -1.209 * 0.993**edat * f_sexe
+
+
+# Equacions seleccionables des de config/rules.yaml (motor.equacio_fge)
+EQUACIONS_FGE = {"ckd_epi_2009": ckd_epi_2009, "ckd_epi_2021": ckd_epi_2021}

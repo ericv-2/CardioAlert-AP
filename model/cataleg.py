@@ -64,6 +64,7 @@ GRUPS_ATC: dict[str, str] = {
     "C08C": "antagonista_calcio",
     "C10AA": "estatina",
     "C03DA05": "finerenona",
+    "B01AC06": "AAS",
 }
 
 # Diagnòstics (claus de DIAGNOSTICS) que justifiquen cada grup terapèutic
@@ -78,6 +79,7 @@ JUSTIFICACIO_GRUP: dict[str, set[str]] = {
     "antagonista_calcio": {"hta"},
     "estatina": {"dislipemia"},
     "finerenona": {"mrc"},
+    "AAS": set(),  # sense MCV establerta al catàleg: el generador no en prescriu
 }
 
 

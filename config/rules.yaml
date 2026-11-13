@@ -3,11 +3,16 @@
 # sense tocar codi. TOTS ELS VALORS ESTAN PENDENTS DE VALIDACIÓ PEL METGE.
 #
 # Codis: diagnòstics en CIAP-2, proves en LOINC, fàrmacs per grup (vegeu model/cataleg.py).
+#
+# Cada regla porta "evidencia" (classe de recomanació que el motor cita com a
+# "<evidencia> - <motor.guia>") i "pes" (punts que suma a la puntuació de prioritat 0-100).
 
 rules:
 
   uacr_falta:
     enabled: true
+    evidencia: Clase I
+    pes: 15
     descripcio: Diabètic, hipertens o MRC sense UACR en més de 12 mesos
     diagnostics: [T90, K86, U99.01]   # DM2, HTA, MRC (n'hi ha prou amb un)
     prova: "9318-7"                   # UACR
@@ -15,6 +20,8 @@ rules:
 
   creatinina_falta:
     enabled: true
+    evidencia: Clase I
+    pes: 15
     descripcio: Pacient crònic sense creatinina en més de 12 mesos
     diagnostics: [T90, K86, U99.01, K77, T93]   # DM2, HTA, MRC, IC, dislipèmia
     prova: "2160-0"                   # creatinina
@@ -22,6 +29,8 @@ rules:
 
   fge_descens:
     enabled: true
+    evidencia: Clase IIa
+    pes: 30
     descripcio: Pèrdua ràpida de filtrat glomerular
     prova: "62238-1"                  # FGe
     descens_anual_llindar: 5.0        # mL/min/1,73m² per any (alerta si la pèrdua és superior)
@@ -31,6 +40,8 @@ rules:
 
   albuminuria_sense_accio:
     enabled: true
+    evidencia: Clase I
+    pes: 30
     descripcio: Albuminúria sense tractament nefroprotector
     prova: "9318-7"
     uacr_llindar: 30                  # mg/g (alerta si UACR >= llindar)
@@ -38,6 +49,8 @@ rules:
 
   mrc_no_diagnosticada:
     enabled: true
+    evidencia: Clase I
+    pes: 30
     descripcio: Criteris analítics de MRC sense diagnòstic registrat
     fge_llindar: 60                   # mL/min/1,73m² (criteri si FGe < llindar)
     uacr_llindar: 30                  # mg/g (criteri si UACR >= llindar)
@@ -47,19 +60,31 @@ rules:
 
   possible_ic:
     enabled: true
+    evidencia: Clase I
+    pes: 30
     descripcio: NT-proBNP elevat per a l'edat sense diagnòstic d'insuficiència cardíaca
     prova: "33762-6"                  # NT-proBNP
     llindars_per_edat:                # pg/mL (alerta si valor >= llindar)
       - {edat_max: 49, llindar: 125}  # < 50 anys
       - {edat_max: 75, llindar: 250}  # 50-75 anys
       - {edat_max: 200, llindar: 500} # > 75 anys
+    llindar_descarta: 125             # pg/mL (per sota, la IC queda descartada)
+    mrc_avancada:                     # amb MRC avançada el NT-proBNP puja sense IC: llindar mínim més alt
+      fge_max: 30                     # mL/min/1,73m² (MRC avançada si FGe < valor)
+      llindar: 500                    # pg/mL
     diagnostic_excloent: K77          # IC
 
   risc_cardiovascular:
     enabled: true
+    evidencia: Clase I
+    pes: 30
     descripcio: Risc cardiovascular alt segons l'escala configurada
     escala: score2                    # score2 | regicor | totes_dues (mode de transició)
     llindar_risc_alt: 10              # % (risc alt si >= llindar)
+    regio_score2: baix                # baix | moderat | alt | molt_alt (Espanya: baix)
+    ckd_addon: true                   # SCORE2 CKD Add-on (FGe + UACR) quan hi ha MRC
+    reclassificacio_kdigo: true       # amb MRC, KDIGO taronja => risc alt; vermell => molt alt
+    diagnostics_ecv: [K74, K75, K76, K89, K90, K91, K92]   # MCV establerta => risc molt alt directe
 
   ben_tractat:
     enabled: true
@@ -74,3 +99,40 @@ rules:
     pressio_objectiu_diabetics: {sistolica: 130, diastolica: 80}  # mmHg
     proves_recents: ["9318-7", "2160-0"]        # UACR i creatinina
     max_mesos_proves: 12
+
+# Paràmetres generals del motor (engine/). TAMBÉ PENDENTS DE VALIDACIÓ PEL METGE.
+motor:
+  guia: "ESC/ERA 2026"                # guia que se cita a alertes i accions
+  data_referencia: 2026-11-13         # "avui" de la demo; null = data real del sistema
+  equacio_fge: ckd_epi_2009           # ckd_epi_2009 (sense factor racial) | ckd_epi_2021
+
+  possible_fra:                       # caiguda aguda inesperada del FGe (possible fracàs renal agut)
+    enabled: true
+    evidencia: Clase I
+    pes: 40
+    caiguda_pct: 30                   # % respecte de la mesura anterior (alerta si >=)
+    max_mesos_entre_mesures: 18
+    caiguda_esperada_min_pct: 10      # entre aquest % i caiguda_pct després d'iniciar iSGLT2/IECA/ARA-II: avís "esperada"
+
+  derivacio_nefrologia:
+    enabled: true
+    evidencia: Clase I
+    pes: 35
+    kfre_5a_pct: 5                    # % de risc de fallida renal a 5 anys (deriva si >=)
+    fge_max: 30                       # deriva si FGe < valor
+    uacr_min: 700                     # mg/g (deriva si >=)
+    duplicacio_uacr: true             # deriva si l'UACR es duplica (i queda >= 30 mg/g)
+
+  oportunitats:                       # oportunitats terapèutiques (accions recomanades)
+    isglt2: {enabled: true, evidencia: Clase I, fge_min: 20, uacr_min_sense_dm: 200}
+    estatina: {enabled: true, evidencia: Clase I, fge_max: 60}          # FGe < 60 sense hipolipemiant, sigui quin sigui l'LDL
+    sraa: {enabled: true, evidencia: Clase I, uacr_min: 30}             # IECA/ARA-II si albuminúria
+    pressio: {enabled: true, evidencia: Clase I, pas_objectiu: [120, 129]}   # en DM2 o MRC
+    finerenona: {enabled: true, evidencia: Clase I, uacr_min: 30, potassi_max: 4.8}
+    aglp1: {enabled: true, evidencia: Clase I, uacr_min: 30}            # semaglutida en DM2 + albuminúria
+    aas_prevencio_primaria: {enabled: true, evidencia: Clase III, pes: 10, grup: AAS}
+
+  prioritat:                          # puntuacio_prioritat = suma dels pesos de les alertes + KDIGO (màx. 100)
+    kdigo: {verd: 0, groc: 3, taronja: 8, vermell: 15}
+    nivell_alt: 30                    # nivell_risc ALT si puntuació >= valor
+    nivell_mitja: 10                  # nivell_risc MITJA si puntuació >= valor; si no, BAIX

@@ -59,7 +59,8 @@ class FhirConnector(Connector):
                 q = o["valueQuantity"]
                 analitiques.append(Analitica(
                     loinc, o["code"].get("text") or o["code"]["coding"][0].get("display", ""),
-                    float(q["value"]), q.get("unit", ""), _data(o["effectiveDateTime"])))
+                    float(q["value"]), q.get("unit", ""), _data(o["effectiveDateTime"]),
+                    next((x["display"] for x in o.get("performer", []) if x.get("display")), None)))
 
         p = per_tipus["Patient"][0]
         nom = p["name"][0]

@@ -33,7 +33,8 @@ class CsvConnector(Connector):
         self._analitiques: dict[str, list[Analitica]] = defaultdict(list)
         for f in _llegeix(carpeta / "observations.csv"):
             self._analitiques[f["pacient_id"]].append(Analitica(
-                f["codi_loinc"], f["nom"], float(f["valor"]), f["unitat"], date.fromisoformat(f["data"])))
+                f["codi_loinc"], f["nom"], float(f["valor"]), f["unitat"], date.fromisoformat(f["data"]),
+                (f.get("origen") or "").strip() or None))
         self._diagnostics: dict[str, list[Diagnostic]] = defaultdict(list)
         for f in _llegeix(carpeta / "conditions.csv"):
             self._diagnostics[f["pacient_id"]].append(Diagnostic(
