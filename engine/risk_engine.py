@@ -41,6 +41,7 @@ GRUPS_INICI_AMB_CAIGUDA = ("iSGLT2", "IECA", "ARA-II")  # fàrmacs amb caiguda i
 NOM_EQUACIO = {"ckd_epi_2009": "CKD-EPI 2009", "ckd_epi_2021": "CKD-EPI 2021"}
 ORDRE_CATEGORIA = ["baix_moderat", "alt", "molt_alt"]
 TEXT_CATEGORIA = {"baix_moderat": "bajo-moderado", "alt": "alto", "molt_alt": "muy alto"}
+MODES_ESCALA = (*ESCALES, "totes_dues")
 
 # Accions recomanades: clau -> (text, nota d'estalvi de temps / anti-inèrcia)
 ACCIONS: dict[str, tuple[str, str | None]] = {
@@ -56,6 +57,8 @@ ACCIONS: dict[str, tuple[str, str | None]] = {
                         None),
     "sraa": ("Iniciar IECA o ARA-II a dosis máxima tolerada (objetivo PAS 120-129 mmHg)",
              "Caída inicial de FGe <30% fisiológica: mantener fármaco."),
+    "valorar_sraa": ("Valorar IECA o ARA-II: sin bloqueo del SRAA pese a su indicación (DM2 o ERC)",
+                     "Caída inicial de FGe <30% fisiológica: mantener fármaco."),
     "isglt2": ("Valorar inicio de iSGLT2 (nefroprotección y cardioprotección)",
                "Sin analítica extra de control al iniciar iSGLT2. Caída inicial de FGe <30% fisiológica: "
                "mantener fármaco."),
@@ -103,6 +106,10 @@ class ResultatPacient:
     pendent_fge: float | None  # mL/min/1,73m² per any (negatiu = pèrdua)
     kfre_5a: float | None  # % de risc de fallida renal a 5 anys (només si FGe < 60 i hi ha UACR)
     risc_cv: dict | None  # escala, valors (%), categoria i reclassificació per MRC
+    escala_usada: str | None = None  # p. ex. "SCORE2-OP + CKD Add-on", "SCORE2-Diabetes", "REGICOR"
+    risc_cv_percentatge: float | None = None  # % de risc a 10 anys amb l'escala usada
+    categoria_risc_cv: str | None = None  # "Riesgo bajo-moderado" | "Riesgo alto" | "Riesgo muy alto"
+    rang_referencia_cv: str | None = None  # talls aplicats (segons l'edat amb les escales ESC)
     alertes_actives: list[Alerta] = field(default_factory=list)
     accions_recomanades: list[Accio] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)  # notes informatives (anti-inèrcia, dades que falten)
@@ -167,7 +174,9 @@ class _Sortida:
         self.avisos: list[str] = []
 
     def cita(self, cfg: dict) -> str:
-        return f"{cfg.get('evidencia', 'Clase I')} - {self.guia}"
+        """Classe de recomanació tal com consta a rules.yaml (cap etiqueta inventada si no hi és)."""
+        evidencia = cfg.get("evidencia")
+        return f"{evidencia} - {self.guia}" if evidencia else self.guia
 
     def alerta(self, regla: str, cfg: dict, titol: str, motiu: str, mesures: list[Mesura] = ()) -> None:
         fonts = tuple(dict.fromkeys(m.origen for m in mesures if m.origen))
@@ -196,9 +205,10 @@ def _dies(mesos: float) -> int:
 
 class RiskEngine:
     def __init__(self, connector: Connector, config: str | Path | dict = CONFIG_DEFECTE,
-                 data_referencia: date | None = None):
+                 data_referencia: date | None = None, escala: str | None = None):
         """config: camí a rules.yaml o el diccionari ja carregat. data_referencia: "avui" (per defecte,
-        motor.data_referencia de la config o, si és null, la data del sistema)."""
+        motor.data_referencia de la config o, si és null, la data del sistema). escala: score2 | regicor |
+        totes_dues (per defecte, risc_cardiovascular.escala_per_defecte de la config)."""
         if not isinstance(config, dict):
             config = yaml.safe_load(Path(config).read_text(encoding="utf-8"))
         self.connector = connector
@@ -207,9 +217,9 @@ class RiskEngine:
         self.avui: date = data_referencia or self.motor.get("data_referencia") or date.today()
         self.nom_equacio = self.motor["equacio_fge"]
         self._equacio = EQUACIONS_FGE[self.nom_equacio]
-        escala = self.regles["risc_cardiovascular"]["escala"]
-        if escala != "totes_dues" and escala not in ESCALES:
-            raise ValueError(f"Escala de risc desconeguda: {escala!r} (score2 | regicor | totes_dues)")
+        self.escala: str = escala or self.regles["risc_cardiovascular"]["escala_per_defecte"]
+        if self.escala not in MODES_ESCALA:
+            raise ValueError(f"Escala de risc desconeguda: {self.escala!r} ({' | '.join(MODES_ESCALA)})")
 
     # --- API pública ------------------------------------------------------------------------
 
@@ -262,6 +272,11 @@ class RiskEngine:
             pendent_fge=round(pendent, 1) if pendent is not None else None,
             kfre_5a=kfre,
             risc_cv=risc_cv,
+            escala_usada=risc_cv["escala_usada"] if risc_cv else None,
+            risc_cv_percentatge=risc_cv["valor"] if risc_cv else None,
+            categoria_risc_cv=(f"Riesgo {TEXT_CATEGORIA[risc_cv['categoria']]}"
+                               if risc_cv and risc_cv["categoria"] else None),
+            rang_referencia_cv=risc_cv["rang_referencia"] if risc_cv else None,
             alertes_actives=s.alertes,
             accions_recomanades=list(s.accions.values()),
             avisos=s.avisos,
@@ -444,31 +459,63 @@ class RiskEngine:
             hba1c=hba1c.valor if hba1c else None, fge=f.fge_ult.valor if f.fge_ult else None,
             edat_dx_diabetis=edat_dx)
 
+    def _talls(self, nom_escala: str, edat: int) -> tuple[dict, str]:
+        """Talls de risc alt / molt alt (%) de l'escala i el text del rang de referència aplicat."""
+        r = self.regles["risc_cardiovascular"]
+        if nom_escala == "regicor":
+            talls, tram = r["talls_regicor"], "REGICOR"
+        else:
+            trams = sorted(r["talls_per_edat"], key=lambda t: t["edat_max"])
+            i = next((i for i, t in enumerate(trams) if edat <= t["edat_max"]), len(trams) - 1)
+            talls = trams[i]
+            tram = (f"< {talls['edat_max'] + 1} años" if i == 0
+                    else f"≥ {trams[i - 1]['edat_max'] + 1} años" if i == len(trams) - 1
+                    else f"{trams[i - 1]['edat_max'] + 1}-{talls['edat_max']} años")
+        alt, molt_alt = (_n(talls[k], 1).removesuffix(",0") for k in ("alt", "molt_alt"))
+        return talls, f"{tram}: bajo-moderado < {alt}% | alto {alt}% a < {molt_alt}% | muy alto ≥ {molt_alt}%"
+
+    def _afectacio_renal(self, f: _Fets) -> bool:
+        """FGe reduït o albuminúria elevada (llindars de risc_cardiovascular.ckd_addon)."""
+        c = self.regles["risc_cardiovascular"]["ckd_addon"]
+        if not c.get("enabled") or not f.fge_ult or f.possible_fra:  # un FGe en caiguda aguda no és fiable
+            return False
+        return f.fge_ult.valor < c["fge_max"] or bool(f.uacr_ult and f.uacr_ult.valor >= c["uacr_min"])
+
     def _risc_cv(self, d: DadesPacient, f: _Fets) -> dict | None:
-        """Risc CV amb l'escala configurada. Es calcula encara que el pacient estigui ben tractat."""
+        """Risc CV amb l'escala seleccionada. Es calcula encara que el pacient estigui ben tractat.
+
+        En mode `score2` (ESC automàtic) la variant la tria `escales.score2` segons edat i diabetis, i
+        aquí s'hi afegeix el CKD Add-on si hi ha afectació renal. La categoria surt dels talls de
+        rules.yaml (per edat a les escales ESC, propis a REGICOR).
+        """
         r = self.regles["risc_cardiovascular"]
         if not self._activa("risc_cardiovascular"):
             return None
-        res = {"escala": r["escala"], "valors": {}, "valor": None, "categoria": None,
-               "reclassificat_mrc": False, "ecv_establerta": False}
+        res = {"escala": self.escala, "escala_usada": None, "valors": {}, "valor": None, "categoria": None,
+               "rang_referencia": None, "reclassificat_mrc": False, "ecv_establerta": False}
         if any(d.te_diagnostic(c) for c in r.get("diagnostics_ecv", [])):
             res.update(categoria="molt_alt", ecv_establerta=True)
             return res
         entrada = self._entrada_risc(d, f)
+        candidats = []  # (ordre de categoria, risc, model, categoria, rang de referència)
         if entrada:
-            for nom in (list(ESCALES) if r["escala"] == "totes_dues" else [r["escala"]]):
+            for nom in (list(ESCALES) if self.escala == "totes_dues" else [self.escala]):
                 x = ESCALES[nom](entrada, r.get("regio_score2", "baix"))
                 if x is None:  # fora del rang d'edat de l'escala
                     continue
                 model, risc = x.model, x.risc
-                # SCORE2-Diabetes ja inclou el FGe: l'Add-on només s'aplica a SCORE2 i SCORE2-OP
-                if nom == "score2" and r.get("ckd_addon") and f.te_mrc and f.fge_ult and model != "SCORE2-Diabetes":
+                if model in r["ckd_addon"].get("models", []) and self._afectacio_renal(f):
                     risc = ckd_addon(entrada, risc, f.fge_ult.valor, f.uacr_ult.valor if f.uacr_ult else None)
                     model += " + CKD Add-on"
-                res["valors"][model] = round(risc, 1)
-        if res["valors"]:
-            res["valor"] = max(res["valors"].values())
-            res["categoria"] = "alt" if res["valor"] >= r["llindar_risc_alt"] else "baix_moderat"
+                risc = round(risc, 1)
+                talls, rang = self._talls(nom, entrada.edat)
+                categoria = ("molt_alt" if risc >= talls["molt_alt"] else "alt" if risc >= talls["alt"]
+                             else "baix_moderat")
+                res["valors"][model] = risc
+                candidats.append((ORDRE_CATEGORIA.index(categoria), risc, model, categoria, rang))
+        if candidats:  # amb més d'una escala mana la que dona la categoria més alta
+            _, valor, model, categoria, rang = max(candidats, key=lambda c: (c[0], c[1]))
+            res.update(escala_usada=model, valor=valor, categoria=categoria, rang_referencia=rang)
         if r.get("reclassificacio_kdigo") and f.te_mrc:
             minima = {"taronja": "alt", "vermell": "molt_alt"}.get(f.color)
             actual = res["categoria"] or "baix_moderat"
@@ -490,12 +537,16 @@ class RiskEngine:
         if not risc_alt or pendents == []:  # sense risc alt, o risc alt però ben tractat (control positiu)
             return
         r = self.regles["risc_cardiovascular"]
-        motiu = f"RCV a 10 años {self._text_risc(risc_cv)} (umbral {r['llindar_risc_alt']}%)"
+        motiu = f"RCV a 10 años {self._text_risc(risc_cv)}"
+        if risc_cv["rang_referencia"]:
+            motiu += f" (referencia {risc_cv['rang_referencia']})"
         if pendents:
             motiu += f"; pendiente: {', '.join(pendents)}"
         s.alerta("risc_cardiovascular", r, "Riesgo cardiovascular alto infratratado", motiu)
         if "estatina" not in f.grups:
             s.accio("estatina", r)
+        if pendents and "sin IECA/ARA-II" in pendents and "sraa" not in s.accions:
+            s.accio("valorar_sraa", r)
         if d.pacient.fumador:
             s.accio("tabac", r)
         b = self.regles["ben_tractat"]

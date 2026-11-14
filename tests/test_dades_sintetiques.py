@@ -90,5 +90,7 @@ def test_config_regles():
     assert set(regles) == {"uacr_falta", "creatinina_falta", "fge_descens", "albuminuria_sense_accio",
                            "mrc_no_diagnosticada", "possible_ic", "risc_cardiovascular", "ben_tractat"}
     assert all(r["enabled"] is True for r in regles.values())
-    assert regles["risc_cardiovascular"]["escala"] == "score2"
-    assert regles["risc_cardiovascular"]["llindar_risc_alt"] == 10
+    assert regles["risc_cardiovascular"]["escala_per_defecte"] == "score2"
+    # Talls ESC per edat (risc alt / molt alt, %): < 50, 50-69 i >= 70 anys
+    assert [(t["edat_max"], t["alt"], t["molt_alt"]) for t in regles["risc_cardiovascular"]["talls_per_edat"]] == \
+        [(49, 2.5, 7.5), (69, 5, 10), (200, 7.5, 15)]

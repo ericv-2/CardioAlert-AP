@@ -24,6 +24,27 @@ triar la seva sense tocar codi. El mode opcional `totes_dues` calcula les dues e
 transició. Tall de risc alt: ≥ 10% (pendent de validar pel metge; els talls de les dues escales no
 són estrictament equivalents).
 
+### Actualització 14/11/2026: mode ESC automàtic i talls per edat
+
+La clau passa a ser `escala_per_defecte` (`score2` | `regicor` | `totes_dues`) i el tall únic del 10%
+desapareix. L'escala també es pot triar en calent (`RiskEngine(..., escala="regicor")`, selector de la web).
+
+- **`score2` = mode ESC automàtic.** El motor tria la variant per pacient: diabetis i 40-69 anys →
+  SCORE2-Diabetes; ≥ 70 anys → SCORE2-OP; < 70 sense diabetis → SCORE2. Menors de 40 anys: no calculable.
+- **CKD Add-on** quan hi ha afectació renal (últim FGe < 60 o últim UACR ≥ 30 mg/g; llindars a
+  `risc_cardiovascular.ckd_addon`). No s'aplica si l'últim FGe és una caiguda aguda (possible FRA).
+- **SCORE2-Diabetes no porta Add-on per defecte** (`ckd_addon.models: [SCORE2, SCORE2-OP]`): l'equació ja
+  inclou el FGe i l'Add-on (Matsushita 2023) es va derivar per a SCORE2 i SCORE2-OP; sumar-lo comptaria
+  el FGe dos cops. En diabètics amb MRC segueix actuant el mínim per KDIGO (taronja = alt, vermell = molt
+  alt). **Pendent de validar pel metge**; es canvia afegint el model a la llista.
+- **Talls per edat (ESC)** a `talls_per_edat`: < 50 anys 2,5% / 7,5%; 50-69 anys 5% / 10%; ≥ 70 anys
+  7,5% / 15% (risc alt / molt alt). REGICOR té talls propis (`talls_regicor`: 10% / 15%), pendents de validar.
+- **Sortida per pacient:** `escala_usada`, `risc_cv_percentatge`, `categoria_risc_cv` i `rang_referencia_cv`.
+- **Efecte al cupo:** 65 pacients amb risc alt o molt alt (abans 37 alertes amb el tall del 10%) i 55
+  alertes de risc CV infratractat. Com que aquesta alerta pesa 30 punts (= llindar del nivell ALT), el
+  cupo queda en 58 ALT / 1 MITJA / 41 BAIX. Pendent de decidir amb el metge si "risc alt" hauria de pesar
+  menys que "risc molt alt" per recuperar un nivell MITJA útil.
+
 ## 2. Capa de dades amb connectors
 
 Tota font de dades implementa `connectors.base.Connector` (`get_patients`, `get_patient_data`) i
@@ -69,9 +90,8 @@ calcular l'edat.
 - **Verificació de coeficients.** SCORE2, SCORE2-OP, SCORE2-Diabetes i CKD Add-on contrastats amb el
   paquet R de codi obert RiskScorescvd (CRAN). **Pendent de verificar:** coeficients de REGICOR i de
   KFRE (transcrits de les publicacions) i les classes de recomanació de `rules.yaml` (camp `evidencia`).
-- **Pendent de decidir amb el metge:** el tall únic del 10% marca com a risc alt gairebé tots els majors
-  de 70 anys amb SCORE2-OP (37 alertes de risc CV sobre 100 pacients). L'ESC fa servir talls per edat
-  (7,5% / 10% / 15%).
+- **Resolt (14/11/2026):** el tall únic del 10% s'ha substituït pels talls per edat de l'ESC (vegeu la
+  secció 1).
 
 ## 7. Sistema d'origen de cada analítica
 
