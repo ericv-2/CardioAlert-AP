@@ -1,7 +1,9 @@
-import { useMemo } from "react";
-import { ChevronRight, CircleCheck, FlaskConical, HeartPulse, Search, TriangleAlert, Users, X } from "lucide-react";
-import { NIVEL, num, pct, SEXO } from "../format.js";
-import { Cargando, CategoriaCvChip, CruzadoBadge, ErrorPanel, KdigoTag, NivelChip } from "./ui.jsx";
+import { useEffect, useMemo, useState } from "react";
+import { CalendarCheck, ChevronRight, CircleCheck, FlaskConical, HeartPulse, Search, Siren, Users, X } from "lucide-react";
+import { GRUPO_CORTO, num, pct, SEXO } from "../format.js";
+import { Cargando, CruzadoBadge, ErrorPanel, GrupoTag, KdigoTag, RiesgoCvChip } from "./ui.jsx";
+
+const POR_PAGINA = 100; // filas que se pintan de golpe (el cupo realista tiene 1.500 pacientes)
 
 function Kpi({ icon: Icon, tono, titulo, valor, detalle }) {
   return (
@@ -43,26 +45,87 @@ function Motivo({ p }) {
   );
 }
 
+// Riesgo CV: categoría de la tabla 5 (ESC 2021) con el %, la escala y el rango de referencia por edad.
+function RiesgoCv({ p }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <RiesgoCvChip p={p} />
+        {p.risc_cv_percentatge != null && <span className="tabular text-base font-semibold text-ink">{pct(p.risc_cv_percentatge)}</span>}
+      </div>
+      {p.escala_usada && <p className="text-xs text-ink">{p.escala_usada}</p>}
+      {p.rang_referencia_cv && <p className="text-xs text-muted">{p.rang_referencia_cv}</p>}
+      {p.regicor_referencia != null && (
+        <p className="tabular text-xs text-muted" title={p.nota_calibracio}>
+          REGICOR (referencia): {pct(p.regicor_referencia)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Hoy({ pacientes }) {
+  return (
+    <section className="rounded-lg border border-clinic-500 bg-white shadow-xs" aria-label="Pacientes prioritarios de hoy">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line bg-clinic-50 px-4 py-2.5">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-ink">
+          <CalendarCheck className="size-5 text-clinic-700" aria-hidden="true" />
+          Hoy: {pacientes.length} pacientes prioritarios
+        </h2>
+        <p className="text-xs text-muted">
+          Los primeros de la lista de trabajo: alertas urgentes, después riesgo muy alto y alto sin tratamiento adecuado.
+        </p>
+      </div>
+      <ol className="grid gap-x-6 sm:grid-cols-2">
+        {pacientes.map((p, i) => {
+          const alerta = p.alertes_actives.reduce((a, b) => (a && a.pes >= b.pes ? a : b), null);
+          return (
+            <li key={p.pacient_id} className="border-b border-line last:border-b-0">
+              <a href={`#/paciente/${p.pacient_id}`} className="flex items-start gap-3 px-4 py-2.5 hover:bg-clinic-50">
+                <span className="tabular mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-clinic-600 text-xs font-semibold text-white">
+                  {i + 1}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="font-semibold text-clinic-700">{p.nom}</span>
+                    <span className="text-xs text-muted">
+                      {p.edat} años · {SEXO[p.sexe]}
+                    </span>
+                    <RiesgoCvChip p={p} prefijo="Riesgo CV: " />
+                  </span>
+                  <span className="mt-0.5 line-clamp-1 block text-sm text-ink">{alerta ? alerta.titol : p.resum}</span>
+                  {p.accions_recomanades[0] && (
+                    <span className="line-clamp-1 block text-sm font-medium text-clinic-700">→ {p.accions_recomanades[0].text}</span>
+                  )}
+                </span>
+              </a>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
 export default function CupoView({ cupo, sel, onRetry, filtro, onFiltro, busqueda, onBusqueda }) {
   const { data, loading, error } = cupo;
   const pacientes = data?.pacients ?? [];
+  const [limite, setLimite] = useState(POR_PAGINA);
   const visibles = useMemo(() => {
     const q = sinAcentos(busqueda.trim());
     return pacientes.filter(
-      (p) => (filtro === "TODOS" || p.nivell_risc === filtro) && (!q || sinAcentos(`${p.nom} ${p.pacient_id}`).includes(q)),
+      (p) => (filtro === "TODOS" || String(p.grup_ordre) === filtro) && (!q || sinAcentos(`${p.nom} ${p.pacient_id}`).includes(q)),
     );
   }, [pacientes, filtro, busqueda]);
+  useEffect(() => setLimite(POR_PAGINA), [filtro, busqueda, data]);
 
   if (error) return <ErrorPanel mensaje={error} onRetry={onRetry} />;
   if (!data) return <Cargando texto={sel.source === "remote" ? "Descargando el cupo del servidor FHIR remoto…" : "Calculando el cupo…"} />;
 
   const k = data.kpis;
-  const filtros = [
-    { id: "TODOS", texto: "Todos", n: k.total },
-    { id: "ALT", texto: "ALT", n: k.alt },
-    { id: "MITJA", texto: "MITJA", n: k.mitja },
-    { id: "BAIX", texto: "BAIX", n: k.baix },
-  ];
+  const filtros = [{ id: "TODOS", texto: "Todos", n: k.total }, ...Object.keys(k.grups).map((g) => ({ id: g, texto: GRUPO_CORTO[g], n: k.grups[g] }))];
+  const hoy = pacientes.slice(0, data.meta.pacients_avui);
+  const pintados = visibles.slice(0, limite);
 
   return (
     <div className={`space-y-5 transition-opacity ${loading ? "opacity-60" : ""}`}>
@@ -75,32 +138,36 @@ export default function CupoView({ cupo, sel, onRetry, filtro, onFiltro, busqued
           detalle={`${k.fonts.length} sistemas de origen · ${k.dades_creuades} con datos cruzados entre comunidades`}
         />
         <Kpi
-          icon={TriangleAlert}
+          icon={Siren}
           tono="bg-red-50 text-red-700"
-          titulo="Prioridad alta (ALT)"
-          valor={num(k.alt)}
-          detalle={`MITJA ${k.mitja} · BAIX ${k.baix} · ${k.alertes} alertas activas`}
+          titulo="Alertas clínicas urgentes"
+          valor={num(k.grups[1])}
+          detalle={`Posible IC, posible FRA o derivación a Nefrología · ${num(k.alertes)} alertas activas en total`}
+        />
+        <Kpi
+          icon={HeartPulse}
+          tono="bg-rose-50 text-rose-700"
+          titulo="Riesgo CV muy alto (ESC 2021)"
+          valor={num(k.categories["Muy alto"])}
+          detalle={`Alto ${num(k.categories.Alto)} · Bajo-moderado ${num(k.categories["Bajo-moderado"])}${
+            k.sense_categoria ? ` · sin categoría ${num(k.sense_categoria)} (< 40 años: ${num(k.menors_edat_minima)}; faltan datos: ${num(k.falten_dades)})` : ""
+          }`}
         />
         <Kpi
           icon={FlaskConical}
           tono="bg-amber-50 text-amber-700"
           titulo="UACR pendiente"
           valor={num(k.uacr_pendent)}
-          detalle={`${k.mrc_no_diagnosticada} con criterios de ERC sin diagnóstico registrado`}
-        />
-        <Kpi
-          icon={HeartPulse}
-          tono="bg-rose-50 text-rose-700"
-          titulo="Riesgo CV alto o muy alto"
-          valor={num(k.risc_cv_alt)}
-          detalle={`${k.risc_cv_infratractat} infratratados · ${k.ben_tractats} bien tratados (sin alerta)`}
+          detalle={`${num(k.mrc_no_diagnosticada)} con criterios de ERC sin diagnóstico · ${num(k.ben_tractats)} bien tratados (sin alerta)`}
         />
       </section>
 
-      <section className="rounded-lg border border-line bg-white shadow-xs" aria-label="Cupo priorizado">
+      {hoy.length > 0 && <Hoy pacientes={hoy} />}
+
+      <section className="rounded-lg border border-line bg-white shadow-xs" aria-label="Lista de trabajo">
         <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3">
-          <h1 className="mr-2 text-base font-semibold text-ink">Cupo priorizado</h1>
-          <div className="flex rounded-md bg-clinic-50 p-0.5 ring-1 ring-line" role="group" aria-label="Filtrar por nivel de riesgo">
+          <h1 className="mr-2 text-base font-semibold text-ink">Lista de trabajo</h1>
+          <div className="flex flex-wrap rounded-md bg-clinic-50 p-0.5 ring-1 ring-line" role="group" aria-label="Filtrar por grupo de la lista de trabajo">
             {filtros.map((f) => (
               <button
                 key={f.id}
@@ -111,9 +178,8 @@ export default function CupoView({ cupo, sel, onRetry, filtro, onFiltro, busqued
                   filtro === f.id ? "bg-clinic-600 text-white shadow-sm" : "text-clinic-800 hover:bg-clinic-100"
                 }`}
               >
-                {NIVEL[f.id] && <span className={`size-2 rounded-full ${NIVEL[f.id].dot}`} aria-hidden="true" />}
                 {f.texto}
-                <span className={`tabular text-xs font-normal ${filtro === f.id ? "text-clinic-100" : "text-muted"}`}>{f.n}</span>
+                <span className={`tabular text-xs font-normal ${filtro === f.id ? "text-clinic-100" : "text-muted"}`}>{num(f.n)}</span>
               </button>
             ))}
           </div>
@@ -144,11 +210,10 @@ export default function CupoView({ cupo, sel, onRetry, filtro, onFiltro, busqued
           <table className="w-full min-w-[1080px] border-collapse text-left">
             <thead>
               <tr className="border-b border-line bg-clinic-50 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                <th scope="col" className="w-28 px-4 py-2.5">Prioridad</th>
+                <th scope="col" className="w-12 px-4 py-2.5">N.º</th>
                 <th scope="col" className="px-3 py-2.5">Paciente</th>
+                <th scope="col" className="w-72 px-3 py-2.5">Riesgo CV a 10 años (tabla 5, ESC 2021)</th>
                 <th scope="col" className="px-3 py-2.5">Riñón (KDIGO)</th>
-                <th scope="col" className="px-3 py-2.5">Escala aplicada</th>
-                <th scope="col" className="px-3 py-2.5">Riesgo CV a 10 años</th>
                 <th scope="col" className="px-3 py-2.5">Por qué y qué hacer</th>
                 <th scope="col" className="w-10 px-2 py-2.5">
                   <span className="sr-only">Abrir ficha</span>
@@ -156,16 +221,13 @@ export default function CupoView({ cupo, sel, onRetry, filtro, onFiltro, busqued
               </tr>
             </thead>
             <tbody>
-              {visibles.map((p) => (
+              {pintados.map((p) => (
                 <tr
                   key={p.pacient_id}
                   onClick={() => (window.location.hash = `#/paciente/${p.pacient_id}`)}
                   className="cursor-pointer border-b border-line align-top last:border-b-0 hover:bg-clinic-50"
                 >
-                  <td className="px-4 py-3">
-                    <NivelChip nivel={p.nivell_risc} />
-                    <p className="tabular mt-1 text-xs text-muted">{p.puntuacio_prioritat} puntos</p>
-                  </td>
+                  <td className="tabular px-4 py-3 text-sm text-muted">{pacientes.indexOf(p) + 1}</td>
                   <td className="px-3 py-3">
                     <a
                       href={`#/paciente/${p.pacient_id}`}
@@ -177,6 +239,9 @@ export default function CupoView({ cupo, sel, onRetry, filtro, onFiltro, busqued
                     <p className="text-xs text-muted">
                       {p.pacient_id} · {p.edat} años · {SEXO[p.sexe]}
                     </p>
+                    <p className="mt-1">
+                      <GrupoTag p={p} />
+                    </p>
                     {p.dades_creuades && (
                       <p className="mt-1">
                         <CruzadoBadge fuentes={p.fonts_dades} />
@@ -184,15 +249,13 @@ export default function CupoView({ cupo, sel, onRetry, filtro, onFiltro, busqued
                     )}
                   </td>
                   <td className="px-3 py-3">
+                    <RiesgoCv p={p} />
+                  </td>
+                  <td className="px-3 py-3">
                     <KdigoTag categoria={p.categoria_kdigo} riesgo={p.risc_kdigo} />
                     <p className="tabular whitespace-nowrap text-xs text-muted">
                       FGe {num(p.fge_actual)} · UACR {p.uacr_actual == null ? "sin dato" : num(p.uacr_actual)}
                     </p>
-                  </td>
-                  <td className="px-3 py-3 text-sm">{p.escala_usada ?? <span className="text-muted">No calculable</span>}</td>
-                  <td className="px-3 py-3">
-                    <p className="tabular text-base font-semibold text-ink">{pct(p.risc_cv_percentatge)}</p>
-                    <CategoriaCvChip categoria={p.categoria_risc_cv} />
                   </td>
                   <td className="max-w-md px-3 py-3">
                     <Motivo p={p} />
@@ -208,9 +271,21 @@ export default function CupoView({ cupo, sel, onRetry, filtro, onFiltro, busqued
             <p className="px-4 py-10 text-center text-sm text-muted">Ningún paciente coincide con el filtro y la búsqueda.</p>
           )}
         </div>
+        {visibles.length > limite && (
+          <div className="border-t border-line px-4 py-3 text-center">
+            <button
+              type="button"
+              onClick={() => setLimite((n) => n + POR_PAGINA)}
+              className="rounded-md px-4 py-2 text-sm font-semibold text-clinic-700 ring-1 ring-inset ring-line hover:bg-clinic-50"
+            >
+              Mostrar {Math.min(POR_PAGINA, visibles.length - limite)} más
+            </button>
+          </div>
+        )}
         <p className="border-t border-line px-4 py-2 text-xs text-muted">
-          Mostrando {visibles.length} de {k.total} pacientes, ordenados por puntuación de prioridad. Herramienta de ayuda a la decisión: no
-          sustituye el juicio clínico.
+          Mostrando {num(pintados.length)} de {num(visibles.length)} pacientes ({num(k.total)} en el cupo). El orden de la lista no es una
+          clasificación de riesgo: primero las alertas clínicas urgentes, después el riesgo muy alto y alto sin tratamiento adecuado y, dentro
+          de cada grupo, la puntuación del motor. Herramienta de ayuda a la decisión: no sustituye el juicio clínico.
         </p>
       </section>
     </div>

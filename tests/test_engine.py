@@ -12,6 +12,7 @@ import yaml
 from connectors import CsvConnector, FhirConnector
 from engine import RiskEngine
 from engine import renal
+from engine.__main__ import recompte
 from engine.escales import EntradaRisc, ckd_addon, regicor, score2
 from model import Analitica, DadesPacient, Diagnostic, Medicacio, Pacient
 from model.cataleg import LOINC
@@ -115,7 +116,7 @@ def test_escales_de_risc():
 def test_casos_trampa(motor, nom, regla):
     r = per_nom(motor, nom)
     assert regla in r.regles_actives()
-    assert r.nivell_risc in ("ALT", "MITJA") and r.puntuacio_prioritat >= 10
+    assert r.puntuacio_prioritat >= 10 and r.grup_ordre in (1, 2, 3, 4)
     assert not r.ben_tractat
     assert r.accions_recomanades and r.resum and r.nota_clinica_auto
 
@@ -158,7 +159,7 @@ def test_cas4_mrc_sense_diagnostic(motor):
     assert r.kfre_5a is not None
     # 67 anys sense diabetis i amb afectació renal: SCORE2 + CKD Add-on; alt amb els talls de 50-69 anys
     assert r.escala_usada == "SCORE2 + CKD Add-on" and 5 <= r.risc_cv_percentatge < 10
-    assert r.categoria_risc_cv == "Riesgo alto" and r.rang_referencia_cv.startswith("50-69 años")
+    assert r.categoria_risc_cv == "Alto" and r.rang_referencia_cv.startswith("50-69 años")
     accions = {a.clau: a for a in r.accions_recomanades}
     assert "registrar_mrc" in accions and "G3aA2" in accions["registrar_mrc"].text
     assert "estatina" in accions  # FGe < 60 sense hipolipemiant
@@ -166,11 +167,21 @@ def test_cas4_mrc_sense_diagnostic(motor):
 
 def test_cas5_risc_alt_infratractat(motor):
     r = per_nom(motor, "Manuel Sánchez")
-    assert r.risc_cv["escala"] == "score2" and list(r.risc_cv["valors"]) == ["SCORE2-Diabetes"]
+    assert r.risc_cv["escala"] == "totes_dues" and list(r.risc_cv["valors"]) == ["SCORE2-Diabetes"]
     assert r.risc_cv["valor"] >= 10 and r.risc_cv["categoria"] == "molt_alt"  # 62 anys: molt alt si >= 10%
-    assert (r.escala_usada, r.categoria_risc_cv) == ("SCORE2-Diabetes", "Riesgo muy alto")
-    assert {"sin IECA/ARA-II", "sin iSGLT2", "sin estatina"} <= set(r.objectius_pendents)
-    assert {"estatina", "isglt2", "tabac", "pressio"} <= {a.clau for a in r.accions_recomanades}
+    assert (r.escala_usada, r.categoria_risc_cv, r.text_risc_cv) == ("SCORE2-Diabetes", "Muy alto", "Muy alto")
+    assert {"sin IECA/ARA-II", "sin iSGLT2", "sin estatina", "LDL 125 mg/dL (objetivo < 100)"} <= set(r.objectius_pendents)
+    accions = {a.clau: a for a in r.accions_recomanades}
+    # PAS 138: pas 1 assolit (< 140); el pas 2 (< 130 si es tolera) és una acció, no un objectiu pendent
+    assert {"estatina", "isglt2", "tabac", "pressio_optima"} <= set(accions) and "pressio" not in accions
+    assert "objetivo LDL < 55 mg/dL por riesgo muy alto" in accions["estatina"].text
+    alerta = next(a for a in r.alertes_actives if a.regla == "risc_cardiovascular")
+    assert alerta.titol == "Riesgo cardiovascular muy alto: tratamiento generalmente recomendado"
+    assert alerta.evidencia == "Clase I - ESC 2021" and r.grup_ordre == 2
+    # REGICOR només com a referència: no canvia la categoria
+    assert r.regicor_referencia == pytest.approx(14.8, abs=0.2)
+    assert r.nota_calibracio == ("Las escalas europeas pueden sobreestimar el riesgo en población española. "
+                                 f"REGICOR (calibrada para población catalana): {str(r.regicor_referencia).replace('.', ',')} %")
 
 
 def test_cas6_possible_ic(motor):
@@ -185,19 +196,23 @@ def test_cas6_possible_ic(motor):
 
 def test_cas7_control_ben_tractat(motor):
     r = per_nom(motor, "Francisco Jiménez")
-    assert r.alertes_actives == [] and r.accions_recomanades == []
-    assert (r.nivell_risc, r.puntuacio_prioritat) == ("BAIX", 0)
-    assert r.ben_tractat and r.objectius_pendents == []
-    # Mateix perfil que el cas 5: el risc segueix sent molt alt, però no hi ha res a fer
-    assert r.risc_cv["categoria"] == "molt_alt" and r.categoria_risc_cv == "Riesgo muy alto"
+    assert r.alertes_actives == []
+    assert (r.grup_ordre, r.grup_ordre_text, r.puntuacio_prioritat) == (4, "Resto", 0)
+    assert r.ben_tractat and r.objectius_pendents == []  # pas 1 de la figura 6: PAS < 140 i LDL < 100
+    # Mateix perfil que el cas 5: el risc segueix sent molt alt, però no hi ha cap alerta
+    assert r.risc_cv["categoria"] == "molt_alt" and r.categoria_risc_cv == "Muy alto"
+    # Pas 2 de la figura 6: LDL 68 >= 55 (objectiu amb risc molt alt) és una acció opcional, no una alerta
+    assert [a.clau for a in r.accions_recomanades] == ["ldl_intensificar"]
+    assert "LDL 68 mg/dL (objetivo < 55 por riesgo muy alto" in r.accions_recomanades[0].text
 
 
 def test_cas8_control_sana(motor):
     r = per_nom(motor, "Laura Moreno")
     assert r.alertes_actives == [] and r.accions_recomanades == []
-    assert (r.nivell_risc, r.puntuacio_prioritat) == ("BAIX", 0)
+    assert (r.grup_ordre, r.puntuacio_prioritat) == (4, 0)
     assert not r.ben_tractat  # no té res a tractar: la regla no li aplica
     assert r.risc_cv["categoria"] == "baix_moderat" and r.estat_renal == "normal"
+    assert r.categoria_risc_cv == r.text_risc_cv == "Bajo-moderado" and r.escala_usada == "SCORE2"
 
 
 # --- Configuració (rules.yaml) --------------------------------------------------------------
@@ -216,11 +231,15 @@ def test_canvi_d_escala_des_de_rules_yaml(connector, config, tmp_path):
     assert list(s2.risc_cv["valors"]) == ["SCORE2-Diabetes"]
     assert list(reg.risc_cv["valors"]) == ["REGICOR"] and reg.risc_cv["escala"] == "regicor"
     assert reg.risc_cv["valor"] == pytest.approx(14.8, abs=0.2) != s2.risc_cv["valor"]
-    assert (reg.escala_usada, reg.categoria_risc_cv) == ("REGICOR", "Riesgo alto")  # REGICOR: alt de 10% a < 15%
+    assert (reg.escala_usada, reg.categoria_risc_cv) == ("REGICOR", "Alto")  # REGICOR: alt de 10% a < 15%
     assert reg.rang_referencia_cv.startswith("REGICOR:")
-    assert set(dues.risc_cv["valors"]) == {"SCORE2-Diabetes", "REGICOR"}
-    # Amb les dues escales mana la que dona la categoria més alta (aquí SCORE2-Diabetes: molt alt)
-    assert (dues.escala_usada, dues.risc_cv_percentatge) == ("SCORE2-Diabetes", s2.risc_cv_percentatge)
+    # Amb les dues escales la categoria surt SEMPRE de l'escala ESC; REGICOR és només una referència
+    assert list(dues.risc_cv["valors"]) == ["SCORE2-Diabetes"]
+    assert (dues.escala_usada, dues.risc_cv_percentatge, dues.categoria_risc_cv) == \
+        ("SCORE2-Diabetes", s2.risc_cv_percentatge, s2.categoria_risc_cv)
+    assert dues.regicor_referencia == reg.risc_cv_percentatge and "REGICOR" in dues.nota_calibracio
+    assert s2.regicor_referencia is None and s2.nota_calibracio is None
+    assert reg.regicor_referencia is None
     for r in (s2, reg, dues):
         assert "risc_cardiovascular" in r.regles_actives()
     # Amb REGICOR el control segueix sense alertes
@@ -230,9 +249,9 @@ def test_canvi_d_escala_des_de_rules_yaml(connector, config, tmp_path):
 
 
 def test_escala_per_defecte_i_seleccio_en_calent(connector, config):
-    """Per defecte, mode ESC automàtic; REGICOR es pot triar per paràmetre sense tocar rules.yaml."""
-    assert config["rules"]["risc_cardiovascular"]["escala_per_defecte"] == "score2"
-    assert RiskEngine(connector).escala == "score2"
+    """Per defecte, ESC automàtic + REGICOR de referència; REGICOR es pot triar per paràmetre (comparacions)."""
+    assert config["rules"]["risc_cardiovascular"]["escala_per_defecte"] == "totes_dues"
+    assert RiskEngine(connector).escala == "totes_dues"
     reg = RiskEngine(connector, escala="regicor")
     cupo = reg.avalua_cupo()
     assert {r.escala_usada for r in cupo} == {"REGICOR", None}  # None: fora del rang 35-74 anys
@@ -259,19 +278,37 @@ def test_equacio_fge_configurable(connector, config):
 def test_cupo_ordenat_i_auditable(motor):
     cupo = motor.avalua_cupo()
     assert len(cupo) == 100
-    punts = [r.puntuacio_prioritat for r in cupo]
-    assert punts == sorted(punts, reverse=True) and all(0 <= p <= 100 for p in punts)
-    cita = re.compile(r"^Clase (I|IIa|IIb|III) - ESC/ERA 2026$")
+    # Ordre de la llista de treball: per grup i, dins de cada grup, per puntuació del motor
+    ordre = [(r.grup_ordre, -r.puntuacio_prioritat) for r in cupo]
+    assert ordre == sorted(ordre) and all(0 <= r.puntuacio_prioritat <= 100 for r in cupo)
+    urgents = {"possible_ic", "possible_fra", "derivacio_nefrologia"}
+    cita = re.compile(r"^Clase (I|IIa|IIb|III) - (ESC/ERA 2026|ESC 2021)$")
     for r in cupo:
-        assert r.nivell_risc in ("ALT", "MITJA", "BAIX")
+        assert "nivell_risc" not in r.to_dict()  # cap classificació ALT/MITJA/BAIX
+        assert r.categoria_risc_cv in ("Bajo-moderado", "Alto", "Muy alto") and r.text_risc_cv == r.categoria_risc_cv
+        regles = r.regles_actives()
+        esperat = (1 if regles & urgents else 4 if "risc_cardiovascular" not in regles
+                   else 2 if r.categoria_risc_cv == "Muy alto" else 3)
+        assert r.grup_ordre == esperat, r.pacient_id
+        for a in r.alertes_actives:
+            if a.regla == "risc_cardiovascular":
+                assert a.evidencia.endswith("ESC 2021") and a.pes == (35 if r.categoria_risc_cv == "Muy alto" else 20)
+                assert a.titol in (
+                    "Riesgo cardiovascular alto: valorar tratamiento (decisión compartida)",
+                    "Riesgo cardiovascular muy alto: tratamiento generalmente recomendado",
+                    "Valorar tratamiento considerando fragilidad, polimedicación y preferencias del paciente (clase IIb)")
         assert r.nota_clinica_auto.startswith("[CardioAlert AP")
         assert all(cita.match(a.evidencia) and a.motiu for a in r.alertes_actives), r.pacient_id
-        assert all(cita.match(a.evidencia) for a in r.accions_recomanades), r.pacient_id
+        # Les accions dels objectius de la figura 6 citen la guia sense classe (no se n'inventa cap)
+        assert all(cita.match(a.evidencia) or a.evidencia == "ESC 2021" for a in r.accions_recomanades), r.pacient_id
         if r.alertes_actives:
             assert r.accions_recomanades and not r.ben_tractat, r.pacient_id
         assert r.to_dict()["pacient_id"] == r.pacient_id
-    assert {r.nivell_risc for r in cupo} == {"ALT", "MITJA", "BAIX"}
+    assert {r.grup_ordre for r in cupo} == {1, 2, 3, 4}
     assert any(r.ben_tractat for r in cupo)
+    n = recompte(cupo)
+    assert sum(n["categories"].values()) == 100 and sum(n["grups"].values()) == 100
+    assert (n["sense_categoria"], n["menors_edat_minima"], n["falten_dades"]) == (0, 0, 0)
 
 
 def test_determinista_i_independent_del_connector(connector, motor):
@@ -338,7 +375,7 @@ FGE_REDUIT = [("2025-09-10", 1.5), ("2026-09-10", 1.5)]  # FGe ~50 mantingut (no
     (75, [], FGE_NORMAL, [], "SCORE2-OP"),
     (75, [], FGE_REDUIT, [], "SCORE2-OP + CKD Add-on"),
     (75, ["T90"], FGE_NORMAL, [("hba1c", 7.2, "2026-09-10")], "SCORE2-OP"),    # >= 70 anys: SCORE2-OP encara que sigui diabètic
-    (38, [], FGE_NORMAL, [], None),                                            # < 40 anys: fora de rang
+    (38, [], FGE_NORMAL, [], None),                                            # < 40 anys: no aplicable
 ])
 def test_seleccio_automatica_de_variant_esc(motor, edat, dxs, creatinines, extres, esperada):
     r = motor.avalua_dades(_pacient(creatinines, dxs=dxs, extres=LIPIDS + extres, edat=edat))
@@ -346,7 +383,7 @@ def test_seleccio_automatica_de_variant_esc(motor, edat, dxs, creatinines, extre
     if esperada is None:
         assert r.risc_cv_percentatge is None and r.categoria_risc_cv is None
     else:
-        assert r.risc_cv_percentatge > 0 and r.categoria_risc_cv.startswith("Riesgo ")
+        assert r.risc_cv_percentatge > 0 and r.categoria_risc_cv in ("Bajo-moderado", "Alto", "Muy alto")
         assert r.risc_cv["valors"] == {esperada: r.risc_cv_percentatge}
 
 
@@ -378,16 +415,16 @@ def test_talls_per_edat_a_tot_el_cupo(motor):
         if r.risc_cv_percentatge is None:
             continue
         _, alt, molt_alt, tram = next(t for t in TALLS_ESC if r.edat <= t[0])
-        esperada = ("Riesgo muy alto" if r.risc_cv_percentatge >= molt_alt
-                    else "Riesgo alto" if r.risc_cv_percentatge >= alt else "Riesgo bajo-moderado")
+        esperada = ("Muy alto" if r.risc_cv_percentatge >= molt_alt
+                    else "Alto" if r.risc_cv_percentatge >= alt else "Bajo-moderado")
         assert r.rang_referencia_cv.startswith(tram + ":"), r.pacient_id
         if r.risc_cv["reclassificat_mrc"]:  # la MRC (KDIGO taronja/vermell) només pot pujar la categoria
-            assert r.categoria_risc_cv != esperada and r.categoria_risc_cv != "Riesgo bajo-moderado", r.pacient_id
+            assert r.categoria_risc_cv != esperada and r.categoria_risc_cv != "Bajo-moderado", r.pacient_id
         else:
             assert r.categoria_risc_cv == esperada, r.pacient_id
         vistes.add((tram, r.categoria_risc_cv))
     assert {t for t, _ in vistes} == {"< 50 años", "50-69 años", "≥ 70 años"}
-    assert {c for _, c in vistes} == {"Riesgo bajo-moderado", "Riesgo alto", "Riesgo muy alto"}
+    assert {c for _, c in vistes} == {"Bajo-moderado", "Alto", "Muy alto"}
 
 
 def test_mateix_risc_categoria_diferent_segons_edat(connector, config):
@@ -401,9 +438,9 @@ def test_mateix_risc_categoria_diferent_segons_edat(connector, config):
         cfg["rules"]["risc_cardiovascular"]["talls_per_edat"][1].update(alt=alt, molt_alt=molt_alt)
         return RiskEngine(connector, cfg).avalua_dades(_pacient(FGE_NORMAL, extres=LIPIDS)).categoria_risc_cv
 
-    assert categoria(pct + 1, pct + 2) == "Riesgo bajo-moderado"
-    assert categoria(pct, pct + 1) == "Riesgo alto"       # el tall és inclusiu (>=)
-    assert categoria(pct - 1, pct) == "Riesgo muy alto"
+    assert categoria(pct + 1, pct + 2) == "Bajo-moderado"
+    assert categoria(pct, pct + 1) == "Alto"       # el tall és inclusiu (>=)
+    assert categoria(pct - 1, pct) == "Muy alto"
 
 
 def test_sense_etiquetes_d_evidencia_inventades(connector, config):
@@ -412,6 +449,128 @@ def test_sense_etiquetes_d_evidencia_inventades(connector, config):
     r = per_nom(RiskEngine(connector, config), "Antonio García")
     alerta = next(a for a in r.alertes_actives if a.regla == "uacr_falta")
     assert alerta.evidencia == "ESC/ERA 2026"
+
+
+# --- Guia ESC 2021: calibració, àmbit, menors de 40, dades que falten i objectius ----------
+
+def test_calibracio_de_la_regio_de_risc_baix():
+    """Espanya és un país de risc baix (figura 3, ESC 2021): el motor demana aquesta calibració."""
+    e = EntradaRisc(edat=55, sexe="H", fumador=True, diabetis=False, pas=140, pad=85, colesterol_total=213, hdl=50)
+    regions = ["baix", "moderat", "alt", "molt_alt"]
+    riscos = [score2(e, regio).risc for regio in regions]
+    assert riscos == sorted(riscos) and score2(e).risc == riscos[0]  # per defecte, la de risc baix
+    gran = EntradaRisc(edat=75, sexe="D", fumador=False, diabetis=False, pas=150, pad=85, colesterol_total=213, hdl=55)
+    assert score2(gran, "baix").risc < score2(gran, "moderat").risc < score2(gran, "alt").risc
+
+
+def test_el_motor_fa_servir_la_regio_configurada(connector, config):
+    base = RiskEngine(connector, config).avalua_dades(_pacient(FGE_NORMAL, extres=LIPIDS)).risc_cv_percentatge
+    config["rules"]["risc_cardiovascular"]["regio_score2"] = "alt"
+    assert RiskEngine(connector, config).avalua_dades(_pacient(FGE_NORMAL, extres=LIPIDS)).risc_cv_percentatge > base
+
+
+def test_menor_de_40_nomes_regles_renals_i_proves_pendents(motor):
+    # 38 anys, HTA, FGe ~50 mantingut, NT-proBNP alt i AAS: només han de saltar les regles renals i les proves
+    r = motor.avalua_dades(_pacient(FGE_REDUIT, dxs=["K86"], edat=38, meds=[("Ácido acetilsalicílico", "AAS", "2020-01-01")],
+                                    extres=LIPIDS + [("ntprobnp", 900, "2026-09-10")]))
+    assert (r.estat_risc_cv, r.text_risc_cv) == ("no_aplicable_edat", "Escala SCORE2 no aplicable (<40 años)")
+    assert r.categoria_risc_cv is None and r.risc_cv_percentatge is None and r.nota_calibracio is None
+    assert r.regles_actives() == {"mrc_no_diagnosticada", "uacr_falta"}
+    assert "Escala SCORE2 no aplicable (<40 años)" in r.nota_clinica_auto
+    # El mateix pacient amb 45 anys sí que rep les regles cardíaques
+    r45 = motor.avalua_dades(_pacient(FGE_REDUIT, dxs=["K86"], edat=45, meds=[("Ácido acetilsalicílico", "AAS", "2020-01-01")],
+                                      extres=LIPIDS + [("ntprobnp", 900, "2026-09-10")]))
+    assert {"possible_ic", "aas_prevencio_primaria"} <= r45.regles_actives() and r45.grup_ordre == 1
+
+
+@pytest.mark.parametrize("extres, dxs, accions", [
+    ([("colesterol_total", 200, "2026-09-10"), ("hdl", 50, "2026-09-10")], [], {"sol_pas"}),
+    ([("pas", 130, "2026-09-10"), ("hdl", 50, "2026-09-10")], [], {"sol_lipids"}),
+    ([("pas", 130, "2026-09-10"), ("colesterol_total", 200, "2026-09-10")], [], {"sol_lipids"}),
+    ([], [], {"sol_pas", "sol_lipids"}),
+    (LIPIDS, ["T90"], {"sol_hba1c"}),  # diabètic de 60 anys sense HbA1c: SCORE2 no és per a diabètics
+])
+def test_falten_dades_per_calcular_el_risc(motor, extres, dxs, accions):
+    r = motor.avalua_dades(_pacient(FGE_NORMAL, dxs=dxs, extres=extres))
+    assert (r.estat_risc_cv, r.text_risc_cv) == ("falten_dades", "Faltan datos para calcular el riesgo")
+    assert r.categoria_risc_cv is None and r.escala_usada is None
+    assert accions <= {a.clau for a in r.accions_recomanades}
+    assert "risc_cardiovascular" not in r.regles_actives()
+    if "sol_lipids" in accions:
+        assert "Perfil lipídico" in r.volant_auto
+
+
+def test_ambit_d_aplicacio_de_score2(connector, config):
+    """SCORE2 / SCORE2-OP són per a persones aparentment sanes: MCV, HF, diabetis i MRC van per una altra via."""
+    m = RiskEngine(connector, config)
+    ecv = m.avalua_dades(_pacient(FGE_NORMAL, dxs=["K75"], extres=LIPIDS))  # infart: molt alt sense escala
+    assert (ecv.estat_risc_cv, ecv.categoria_risc_cv, ecv.escala_usada) == ("ecv_establerta", "Muy alto", None)
+    dm = m.avalua_dades(_pacient(FGE_NORMAL, dxs=["T90"], extres=LIPIDS + [("hba1c", 7.2, "2026-09-10")]))
+    assert dm.escala_usada == "SCORE2-Diabetes" and not dm.risc_cv["aparentment_sa"]
+    mrc = m.avalua_dades(_pacient(FGE_REDUIT, extres=LIPIDS))  # FGe ~50 mantingut: mai SCORE2 "pelat"
+    assert mrc.escala_usada == "SCORE2 + CKD Add-on" and not mrc.risc_cv["aparentment_sa"]
+    assert m.avalua_dades(_pacient(FGE_NORMAL, extres=LIPIDS)).risc_cv["aparentment_sa"]
+    # Hipercolesterolèmia familiar: risc alt directe, sense escala (el codi es configura a rules.yaml)
+    config["rules"]["risc_cardiovascular"]["diagnostics_hf"] = ["T93.HF"]
+    hf = RiskEngine(connector, config).avalua_dades(_pacient(FGE_NORMAL, dxs=["T93.HF"], extres=LIPIDS))
+    assert (hf.estat_risc_cv, hf.categoria_risc_cv, hf.escala_usada) == ("hf", "Alto", None)
+
+
+def test_textos_de_l_alerta_segons_la_taula_5(motor):
+    def alerta(edat, pas, dxs=(), col=240):
+        extres = [("pas", pas, "2026-09-10"), ("pad", 85, "2026-09-10"), ("colesterol_total", col, "2026-09-10"),
+                  ("hdl", 42, "2026-09-10"), ("ldl", col - 70, "2026-09-10")]
+        r = motor.avalua_dades(_pacient(FGE_NORMAL, dxs=list(dxs), extres=extres, edat=edat))
+        return r, next(a for a in r.alertes_actives if a.regla == "risc_cardiovascular")
+
+    r, a = alerta(55, 138)
+    assert (r.categoria_risc_cv, r.grup_ordre) == ("Alto", 3)
+    assert (a.titol, a.evidencia, a.pes) == ("Riesgo cardiovascular alto: valorar tratamiento (decisión compartida)",
+                                             "Clase IIa - ESC 2021", 20)
+    r, a = alerta(68, 165)
+    assert (r.categoria_risc_cv, r.grup_ordre) == ("Muy alto", 2)
+    assert (a.titol, a.evidencia, a.pes) == ("Riesgo cardiovascular muy alto: tratamiento generalmente recomendado",
+                                             "Clase I - ESC 2021", 35)
+    assert "referencia 50-69 años: bajo-moderado < 5% | alto 5% a < 10% | muy alto ≥ 10%" in a.motiu
+    # >= 70 anys aparentment sans: text i classe propis; els punts segueixen la categoria
+    r, a = alerta(76, 150)
+    assert r.categoria_risc_cv in ("Alto", "Muy alto") and r.escala_usada == "SCORE2-OP"
+    assert a.titol == ("Valorar tratamiento considerando fragilidad, polimedicación y preferencias del paciente "
+                       "(clase IIb)")
+    assert a.evidencia == "Clase IIb - ESC 2021" and a.pes == (35 if r.categoria_risc_cv == "Muy alto" else 20)
+
+
+def test_punts_de_l_alerta_configurables(connector, config):
+    config["rules"]["risc_cardiovascular"]["alertes"]["molt_alt"]["pes"] = 50
+    r = per_nom(RiskEngine(connector, config), "Manuel Sánchez")
+    assert next(a for a in r.alertes_actives if a.regla == "risc_cardiovascular").pes == 50
+
+
+def test_objectius_de_tractament_figura_6(motor):
+    def pacient(pas, ldl, meds):
+        extres = [("pas", pas, "2026-09-10"), ("pad", 80, "2026-09-10"), ("colesterol_total", 230, "2026-09-10"),
+                  ("hdl", 40, "2026-09-10"), ("ldl", ldl, "2026-09-10")]
+        return motor.avalua_dades(_pacient(FGE_NORMAL, extres=extres, meds=meds, edat=66))
+
+    estatina = [("Atorvastatina", "estatina", "2020-01-01")]
+    base = pacient(128, 95, estatina)
+    assert base.categoria_risc_cv in ("Alto", "Muy alto")
+    objectiu = 70 if base.categoria_risc_cv == "Alto" else 55
+    # Pas 1 assolit (PAS < 140, LDL < 100, amb estatina): ben tractat, cap alerta; el pas 2 és una acció
+    assert base.ben_tractat and base.alertes_actives == []
+    assert [a.clau for a in base.accions_recomanades] == ["ldl_intensificar"]
+    assert f"objetivo < {objectiu} por riesgo" in base.accions_recomanades[0].text
+    # LDL >= 100 o PAS >= 140: objectiu pendent i alerta
+    ldl_alt = pacient(128, 112, estatina)
+    assert "LDL 112 mg/dL (objetivo < 100)" in ldl_alt.objectius_pendents
+    assert "risc_cardiovascular" in ldl_alt.regles_actives()
+    pas_alta = pacient(146, 60, estatina)
+    assert "PA 146/80 mmHg (objetivo < 140/90)" in pas_alta.objectius_pendents
+    accio = next(a for a in pas_alta.accions_recomanades if a.clau == "pressio")
+    assert "objetivo PAS < 140; < 130 si se tolera" in accio.text
+    # Sense estatina: l'acció porta l'objectiu d'LDL de la seva categoria
+    sense = pacient(128, 95, [])
+    assert f"objetivo LDL < {objectiu} mg/dL" in next(a for a in sense.accions_recomanades if a.clau == "estatina").text
 
 
 # --- Volant -----------------------------------------------------------------------------------

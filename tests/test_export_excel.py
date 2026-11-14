@@ -34,10 +34,11 @@ def test_excel_complet_i_sense_truncar(cupo, tmp_path):
     col = {nom: i for i, nom in enumerate(capcalera)}
     assert [f[col["ID"]] for f in dades] == [r.pacient_id for r in cupo]  # mateix ordre de prioritat
     for fila, r in zip(dades, cupo):
-        assert fila[col["Nivel de prioridad"]] == r.nivell_risc
+        assert fila[col["Riesgo CV (tabla 5 ESC 2021)"]] == r.text_risc_cv
+        assert fila[col["Grupo de la lista de trabajo"]] == f"{r.grup_ordre}. {r.grup_ordre_text}"
+        assert fila[col["REGICOR de referencia (%)"]] == r.regicor_referencia
         assert fila[col["Escala CV usada"]] == r.escala_usada
         assert fila[col["Riesgo CV a 10 años (%)"]] == r.risc_cv_percentatge
-        assert fila[col["Categoría de riesgo CV"]] == r.categoria_risc_cv
         assert fila[col["Nota clínica (borrador)"]] == r.nota_clinica_auto  # text sencer, sense truncar
         assert fila[col["Resumen (por qué + acción)"]] == r.resum
         for a in r.alertes_actives:
@@ -47,6 +48,10 @@ def test_excel_complet_i_sense_truncar(cupo, tmp_path):
     assert llibre["Alertas"].max_row - 1 == sum(len(r.alertes_actives) for r in cupo)
     resum = dict(llibre["Resumen"].iter_rows(values_only=True))
     assert resum["Pacientes evaluados"] == 100 and resum["Fuente de datos"] == "Local"
+    assert not any("ALT" in str(c) or "MITJA" in str(c) or "BAIX" in str(c) for c in capcalera)
+    categories = [resum[f"Riesgo CV {t} (tabla 5 ESC 2021)"] for t in ("Bajo-moderado", "Alto", "Muy alto")]
+    assert sum(categories) + resum["Sin categoría (< 40 años o faltan datos)"] == 100
+    assert sum(v for k, v in resum.items() if str(k).startswith("Lista de trabajo, grupo")) == 100
 
 
 def test_cli_excel(tmp_path, capsys):
@@ -55,7 +60,8 @@ def test_cli_excel(tmp_path, capsys):
     assert "100 pacients" in capsys.readouterr().out
     full = load_workbook(desti)["Cupo"]
     assert full.max_row == 101
-    escales = {c.value for c in full["O"][1:]}
+    capcalera = [c.value for c in full[1]]
+    escales = {f[capcalera.index("Escala CV usada")].value for f in full.iter_rows(min_row=2)}
     assert escales == {"REGICOR", None}
 
 

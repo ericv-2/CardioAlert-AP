@@ -9,8 +9,8 @@ import { Cargando, ErrorPanel } from "./ui.jsx";
 // y muestra la tarjeta que devuelve el servicio; aquí no hay lógica clínica.
 
 const INDICADOR = {
-  critical: { texto: "Crítico", icono: OctagonAlert, caja: "border-red-300 bg-red-50", barra: "bg-red-600", tono: "text-red-800" },
-  warning: { texto: "Aviso", icono: TriangleAlert, caja: "border-amber-300 bg-amber-50", barra: "bg-amber-500", tono: "text-amber-900" },
+  critical: { texto: "Alerta clínica urgente", icono: OctagonAlert, caja: "border-red-300 bg-red-50", barra: "bg-red-600", tono: "text-red-800" },
+  warning: { texto: "Riesgo CV sin tratamiento adecuado", icono: TriangleAlert, caja: "border-amber-300 bg-amber-50", barra: "bg-amber-500", tono: "text-amber-900" },
   info: { texto: "Informativo", icono: Info, caja: "border-sky-200 bg-sky-50", barra: "bg-sky-600", tono: "text-sky-900" },
 };
 

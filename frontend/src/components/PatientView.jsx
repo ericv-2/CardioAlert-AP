@@ -4,7 +4,7 @@ import { api } from "../api.js";
 import { ESTADO_RENAL, fecha, KDIGO, num, pct, SEXO } from "../format.js";
 import NoteModal from "./NoteModal.jsx";
 import RenalChart, { estiloOrigenes, Marca } from "./RenalChart.jsx";
-import { Cargando, CategoriaCvChip, CruzadoBadge, ErrorPanel, KdigoTag, NivelChip } from "./ui.jsx";
+import { Cargando, CruzadoBadge, ErrorPanel, GrupoTag, KdigoTag, RiesgoCvChip } from "./ui.jsx";
 
 function Tarjeta({ titulo, icono: Icono, accion, children, className = "" }) {
   return (
@@ -96,7 +96,7 @@ export default function PatientView({ id, sel, version, fuentes }) {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <h1 className="text-xl font-semibold text-ink">{p.nom}</h1>
-              <NivelChip nivel={p.nivell_risc} largo />
+              <RiesgoCvChip p={p} prefijo="Riesgo CV: " />
               {p.dades_creuades && <CruzadoBadge fuentes={p.fonts_dades} />}
               {p.ben_tractat && (
                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
@@ -106,7 +106,10 @@ export default function PatientView({ id, sel, version, fuentes }) {
               )}
             </div>
             <p className="mt-0.5 text-sm text-muted">
-              {p.pacient_id} · {p.edat} años · {SEXO[p.sexe]} · {p.puntuacio_prioritat} puntos de prioridad
+              {p.pacient_id} · {p.edat} años · {SEXO[p.sexe]}
+            </p>
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted">
+              Lista de trabajo: <GrupoTag p={p} /> · {p.puntuacio_prioritat} puntos del motor
             </p>
             <p className="mt-2 max-w-4xl text-sm text-ink">{p.resum}</p>
           </div>
@@ -214,12 +217,13 @@ export default function PatientView({ id, sel, version, fuentes }) {
           <Tarjeta titulo="Riesgo cardiovascular" icono={ClipboardList}>
             <div className="flex items-end gap-3">
               <p className="text-4xl font-semibold leading-none text-ink">{pct(p.risc_cv_percentatge)}</p>
-              <CategoriaCvChip categoria={p.categoria_risc_cv} />
+              <RiesgoCvChip p={p} />
             </div>
+            <p className="mt-1 text-xs text-muted">Categoría de la tabla 5 de la guía ESC 2021 (calibración de país de riesgo bajo).</p>
             <dl className="mt-3 space-y-2 text-sm">
               <div>
                 <dt className="text-xs text-muted">Escala aplicada</dt>
-                <dd className="font-medium text-ink">{p.escala_usada ?? "No calculable con los datos disponibles"}</dd>
+                <dd className="font-medium text-ink">{p.escala_usada ?? (p.categoria_risc_cv ? "Sin escala (categoría directa)" : p.text_risc_cv)}</dd>
               </div>
               {p.rang_referencia_cv && (
                 <div>
@@ -227,6 +231,12 @@ export default function PatientView({ id, sel, version, fuentes }) {
                   <dd className="text-ink">{p.rang_referencia_cv}</dd>
                 </div>
               )}
+              {p.nota_calibracio && (
+                <div className="rounded-md bg-clinic-50 px-2.5 py-2 text-xs text-ink ring-1 ring-inset ring-line">
+                  {p.nota_calibracio}. <span className="text-muted">Solo como referencia: no cambia la categoría.</span>
+                </div>
+              )}
+              {p.risc_cv?.hf && <dd className="text-xs text-muted">Hipercolesterolemia familiar: riesgo alto sin necesidad de escala.</dd>}
               {p.risc_cv?.reclassificat_mrc && <dd className="text-xs text-muted">Categoría reclasificada al alza por ERC (matriz KDIGO).</dd>}
               {p.risc_cv?.ecv_establerta && <dd className="text-xs text-muted">Enfermedad cardiovascular establecida: riesgo muy alto sin necesidad de escala.</dd>}
               {p.objectius_pendents.length > 0 && (

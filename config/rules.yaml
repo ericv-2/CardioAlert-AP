@@ -76,14 +76,20 @@ rules:
 
   risc_cardiovascular:
     enabled: true
-    evidencia: Clase I
-    pes: 30
-    descripcio: Risc cardiovascular alt o molt alt segons l'escala configurada
+    descripcio: Risc cardiovascular alt o molt alt (taula 5 de la guia ESC 2021) sense tractament adequat
+    guia: "ESC 2021"                  # guia que se cita a l'alerta de risc CV (taula 5, figures 3 i 6)
     # score2 = mode ESC automàtic: el motor tria la variant per pacient
     #   diabetis i 40-69 anys -> SCORE2-Diabetes | >= 70 anys -> SCORE2-OP | < 70 sense diabetis -> SCORE2
-    # regicor = REGICOR (35-74 anys) | totes_dues = mode de transició (es queda amb la categoria més alta)
-    escala_per_defecte: score2
-    regio_score2: baix                # baix | moderat | alt | molt_alt (Espanya: baix)
+    # totes_dues = el mateix + REGICOR al costat, NOMÉS com a referència (avís de calibració): la categoria
+    #   surt sempre de SCORE2 / SCORE2-OP / SCORE2-Diabetes, sense reclassificar
+    # regicor = REGICOR (35-74 anys) com a escala principal; només per a comparacions manuals (no és taula 5)
+    escala_per_defecte: totes_dues
+    regio_score2: baix                # baix | moderat | alt | molt_alt (Espanya: risc baix, figura 3 ESC 2021)
+    edat_min: 40                      # per sota, SCORE2 no és aplicable: només regles renals i proves pendents
+    alertes:                          # punts i classe de recomanació de l'alerta segons la categoria (taula 5)
+      alt: {pes: 20, evidencia: Clase IIa}        # "valorar tratamiento (decisión compartida)"
+      molt_alt: {pes: 35, evidencia: Clase I}     # "tratamiento generalmente recomendado"
+      gent_gran: {edat_min: 70, evidencia: Clase IIb}   # >= 70 anys aparentment sans: fragilitat i preferències
     talls_per_edat:                   # % de risc a 10 anys: alt si >= "alt", molt alt si >= "molt_alt" (talls ESC)
       - {edat_max: 49, alt: 2.5, molt_alt: 7.5}    # < 50 anys
       - {edat_max: 69, alt: 5, molt_alt: 10}       # 50-69 anys
@@ -95,7 +101,9 @@ rules:
       uacr_min: 30                    # ...o si UACR >= valor (mg/g)
       models: [SCORE2, SCORE2-OP]     # SCORE2-Diabetes ja inclou el FGe a l'equació: afegir-lo aquí el comptaria dos cops
     reclassificacio_kdigo: true       # amb MRC, KDIGO taronja => risc alt; vermell => molt alt
-    diagnostics_ecv: [K74, K75, K76, K89, K90, K91, K92]   # MCV establerta => risc molt alt directe
+    diagnostics_ecv: [K74, K75, K76, K89, K90, K91, K92]   # MCV establerta => risc molt alt directe (sense escala)
+    diagnostics_hf: []                # codis d'hipercolesterolèmia familiar => risc alt directe (sense escala);
+                                      # el catàleg actual no en té cap: pendent que el metge digui quin codi fa servir
 
   ben_tractat:
     enabled: true
@@ -106,8 +114,11 @@ rules:
     estatina_si_risc_alt: true
     estatina_si_dislipemia: true                # diagnòstic T93
     hba1c_objectiu: 7.0                         # % (objectiu: < valor)
-    pressio_objectiu: {sistolica: 140, diastolica: 90}            # mmHg (objectiu: < valors)
-    pressio_objectiu_diabetics: {sistolica: 130, diastolica: 80}  # mmHg
+    # Objectius de tractament (figura 6 de la guia ESC 2021), esglaonats:
+    #   pas 1 (criteri de "ben tractat"): PAS < sistolica i LDL < base
+    #   pas 2 (acció d'intensificació, no alerta): PAS < sistolica_optima si es tolera; LDL < alt / molt_alt segons el risc
+    pressio_objectiu: {sistolica: 140, sistolica_optima: 130, diastolica: 90}   # mmHg (objectiu: < valors)
+    ldl_objectiu: {base: 100, alt: 70, molt_alt: 55}                            # mg/dL (objectiu: < valors)
     proves_recents: ["9318-7", "2160-0"]        # UACR i creatinina
     max_mesos_proves: 12
 
@@ -138,12 +149,14 @@ motor:
     isglt2: {enabled: true, evidencia: Clase I, fge_min: 20, uacr_min_sense_dm: 200}
     estatina: {enabled: true, evidencia: Clase I, fge_max: 60}          # FGe < 60 sense hipolipemiant, sigui quin sigui l'LDL
     sraa: {enabled: true, evidencia: Clase I, uacr_min: 30}             # IECA/ARA-II si albuminúria
-    pressio: {enabled: true, evidencia: Clase I, pas_objectiu: [120, 129]}   # en DM2 o MRC
+    pressio: {enabled: true, evidencia: Clase I}    # en HTA, DM2 o MRC; objectius a ben_tractat.pressio_objectiu
     finerenona: {enabled: true, evidencia: Clase I, uacr_min: 30, potassi_max: 4.8}
     aglp1: {enabled: true, evidencia: Clase I, uacr_min: 30}            # semaglutida en DM2 + albuminúria
     aas_prevencio_primaria: {enabled: true, evidencia: Clase III, pes: 10, grup: AAS}
 
   prioritat:                          # puntuacio_prioritat = suma dels pesos de les alertes + KDIGO (màx. 100)
     kdigo: {verd: 0, groc: 3, taronja: 8, vermell: 15}
-    nivell_alt: 30                    # nivell_risc ALT si puntuació >= valor
-    nivell_mitja: 10                  # nivell_risc MITJA si puntuació >= valor; si no, BAIX
+    # Ordre de la llista de treball (NO és una classificació de risc): 1) alertes urgents, 2) risc "Muy alto"
+    # sense tractament adequat, 3) risc "Alto" sense tractament, 4) la resta; dins de cada grup, per puntuació.
+    alertes_urgents: [possible_ic, possible_fra, derivacio_nefrologia]
+    pacients_avui: 10                 # mida del bloc "Hoy: N pacientes prioritarios"

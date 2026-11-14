@@ -132,8 +132,8 @@ ho diu al motiu ("dato cruzado entre DIRAYA - Andalucía y eCAP - Catalunya").
   (hook `patient-view`), seguint l'especificació HL7 CDS Hooks 2.0. `api/cds_hooks.py` només tradueix el
   `ResultatPacient` del motor a una targeta; el motor no s'ha modificat.
 - **Una targeta per pacient.** `summary` d'una línia i de menys de 140 caràcters (nivell + primera alerta +
-  "(+N alertas)"; el `resum` del motor és massa llarg per a aquest camp); `indicator` segons el nivell
-  (ALT = `critical`, MITJA = `warning`, BAIX = `info`); `detail` en Markdown amb el motiu de cada alerta i
+  "(+N alertas)"; el `resum` del motor és massa llarg per a aquest camp); `indicator` segons el grup de
+  l'ordre de la llista (vegeu la secció 11; abans, segons el nivell ALT / MITJA / BAIX, ja eliminat); `detail` en Markdown amb el motiu de cada alerta i
   l'origen de la dada (si l'alerta no porta fonts, les del pacient); `suggestions` amb les accions del
   motor en el mateix ordre (la primera, `isRecommended`) i `selectionBehavior: any`.
 - **Suggeriments sense `actions`.** Són informatius: el servei no escriu res a la història clínica.
@@ -152,3 +152,71 @@ ho diu al motiu ("dato cruzado entre DIRAYA - Andalucía y eCAP - Catalunya").
 - **"Informe recuperado de otra comunidad".** L'API retorna `comunitat_habitual` (la comunitat amb més
   analítiques del pacient, entre els orígens "Sistema - Comunitat"); la web etiqueta els informes d'una
   altra comunitat (p. ex. el de DIRAYA de P003). Els orígens sense comunitat ("Lab. Hospital") no s'etiqueten.
+
+## 11. Ajustos segons la guia ESC 2021 de prevenció cardiovascular (14/11/2026)
+
+Font: *2021 ESC Guidelines on cardiovascular disease prevention in clinical practice* (Eur Heart J
+2021;42:3227): **taula 5** (categories de risc per edat), **figura 3** (regions de risc) i **figura 6**
+(objectius de tractament). Tot el que segueix és a `config/rules.yaml` i està **pendent de validar pel metge**.
+
+**Calibració (figura 3).** Espanya és un país de **risc baix**. El motor ja feia servir aquesta calibració
+(`regio_score2: baix`, per defecte també a `engine/escales.py`) per a SCORE2, SCORE2-Diabetes i SCORE2-OP:
+no ha calgut corregir res. Ara hi ha un test que ho fixa.
+
+**Àmbit d'aplicació de SCORE2 / SCORE2-OP (persones "aparentment sanes").**
+
+| Cas | Com es tracta |
+|---|---|
+| Malaltia CV establerta (`diagnostics_ecv`) | "Muy alto" directe, sense escala (ja era així) |
+| Diabetis, 40-69 anys | SCORE2-Diabetes (ja era així). **Nou:** si falta HbA1c o creatinina ja no es fa servir SCORE2 com a substitut: "Faltan datos para calcular el riesgo" |
+| Diabetis, ≥ 70 anys | SCORE2-OP, que porta la diabetis com a variable (SCORE2-Diabetes només està validada fins als 69 anys) |
+| Afectació renal (FGe < 60 o UACR ≥ 30) | SCORE2 / SCORE2-OP **+ CKD Add-on** i, amb MRC confirmada, categoria mínima segons KDIGO (taronja = alt, vermell = molt alt), que coincideix amb la MRC moderada / greu de la guia. Mai SCORE2 "pelat" |
+| Hipercolesterolèmia familiar | **Nou:** `diagnostics_hf` → "Alto" directe, sense escala. La llista és **buida**: el catàleg no té cap codi d'HF i no n'inventem cap; cal que el metge digui quin codi fa servir |
+| Menors de 40 anys | **Nou:** "Escala SCORE2 no aplicable (<40 años)" (`edat_min: 40`). Només s'avaluen les regles renals i les proves pendents (no `possible_ic`, ni risc CV, ni AAS) |
+
+**Classificació (taula 5).** L'únic nivell de risc que es mostra és la categoria de la taula 5:
+"Bajo-moderado", "Alto" o "Muy alto", amb el % i el rang de referència de l'edat. Les etiquetes
+ALT / MITJA / BAIX s'han eliminat del motor (`nivell_risc` ja no existeix), de l'API, de la targeta CDS
+Hooks, de l'Excel i de la web. Camps nous: `text_risc_cv` (la categoria o el motiu pel qual no n'hi ha),
+`estat_risc_cv`, `regicor_referencia` i `nota_calibracio`.
+
+**Ordre de la llista de treball (no és una classificació).** `grup_ordre` / `grup_ordre_text`:
+1. alertes clíniques urgents (`motor.prioritat.alertes_urgents`: `possible_ic`, `possible_fra`,
+   `derivacio_nefrologia`); 2. risc "Muy alto" sense tractament adequat; 3. risc "Alto" sense tractament
+adequat; 4. la resta. Dins de cada grup, per la puntuació del motor. "Sense tractament adequat" vol dir
+que té l'alerta `risc_cardiovascular`, és a dir, algun objectiu pendent. El bloc "Hoy: N pacientes
+prioritarios" són els N primers (`motor.prioritat.pacients_avui`, 10). A la targeta CDS, `indicator` surt
+del grup (1 = `critical`, 2 i 3 = `warning`, 4 = `info`), perquè l'especificació demana una urgència visual.
+
+**Textos i punts de l'alerta.** Segons la categoria (`risc_cardiovascular.alertes`): "Alto" → "Riesgo
+cardiovascular alto: valorar tratamiento (decisión compartida)" (20 punts); "Muy alto" → "Riesgo
+cardiovascular muy alto: tratamiento generalmente recomendado" (35 punts); ≥ 70 anys aparentment sans →
+"Valorar tratamiento considerando fragilidad, polimedicación y preferencias del paciente (clase IIb)" (els
+punts de la seva categoria). Els punts de totes les alertes es poden editar a la pantalla de paràmetres;
+es valida que "Muy alto" sumi més que "Alto". L'alerta cita "ESC 2021" (`risc_cardiovascular.guia`); les
+classes I / IIa / IIb que hi consten són les de les recomanacions de la guia i s'han de verificar.
+
+**Avís de calibració.** El mode per defecte és `totes_dues`: es calculen l'escala ESC i REGICOR. La
+categoria surt **sempre** de SCORE2 / SCORE2-OP / SCORE2-Diabetes; REGICOR no reclassifica mai i es
+mostra al costat amb la nota "Las escalas europeas pueden sobreestimar el riesgo en población española.
+REGICOR (calibrada para población catalana): X %". REGICOR només es calcula entre 35 i 74 anys. El selector
+"Calculadora CV" de la web s'ha tret; `escala="regicor"` segueix existint al motor i a l'API només per
+fer comparacions manuals (no és la taula 5).
+
+**Objectius de tractament (figura 6), esglaonats.** `ben_tractat.pressio_objectiu` i `ldl_objectiu`.
+- **Pas 1 = criteri de "ben tractat" (si no s'assoleix, hi ha alerta):** PAS < 140 mmHg i LDL < 100 mg/dL.
+  L'objectiu propi dels diabètics (130/80) s'ha eliminat.
+- **Pas 2 = acció d'intensificació (no alerta):** PAS < 130 "si se tolera" i LDL < 70 (risc alt) o < 55
+  (risc molt alt), "según tolerancia y preferencias".
+- **Per què esglaonat:** aplicar LDL < 55 com a criteri d'alerta faria saltar el control positiu P007
+  (Francisco Jiménez, LDL 68 amb estatina i risc molt alt), que ha de continuar sense alertes. Ara P007
+  no té cap alerta i rep una acció opcional d'intensificació. **Decisió a validar pel metge.**
+
+**Dades que falten.** Sense PAS, colesterol total o HDL: "Faltan datos para calcular el riesgo" i la
+prova que falta surt com a acció recomanada (i al volant).
+
+**Efecte a la cohort demo (100 pacients, sense tocar-los).** Categories: 35 "Bajo-moderado", 31 "Alto",
+34 "Muy alto" (cap menor de 40 ni amb dades que faltin). Ordre de la llista: 8 alertes urgents, 26 "Muy
+alto" sense tractament adequat, 25 "Alto" sense tractament adequat i 41 a la resta. 59 alertes de risc CV
+(30 "muy alto", 21 "alto" i 8 amb el text de ≥ 70 anys); 77 pacients amb REGICOR de referència. Els 8
+casos trampa es continuen detectant i P007 i P008 continuen sense alertes.

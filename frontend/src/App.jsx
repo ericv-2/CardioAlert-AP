@@ -23,7 +23,6 @@ function parseHash() {
 export default function App() {
   const [route, setRoute] = useState(parseHash);
   const [source, setSource] = useState("local");
-  const [scale, setScale] = useState("score2");
   const [version, setVersion] = useState(0); // sube al guardar parámetros: fuerza recalcular el cupo
   const [cupo, setCupo] = useState({ data: null, loading: true, error: null });
   const [filtro, setFiltro] = useState("TODOS");
@@ -42,14 +41,14 @@ export default function App() {
     const ctrl = new AbortController();
     setCupo((c) => ({ ...c, loading: true, error: null }));
     api
-      .cupo({ source, scale }, ctrl.signal)
+      .cupo({ source }, ctrl.signal)
       .then((data) => setCupo({ data, loading: false, error: null }))
       .catch((e) => e.name !== "AbortError" && setCupo({ data: null, loading: false, error: e.message }));
     return () => ctrl.abort();
-  }, [source, scale, version]);
+  }, [source, version]);
 
   const recalcular = useCallback(() => setVersion((v) => v + 1), []);
-  const sel = { source, scale };
+  const sel = { source }; // la escala la fija rules.yaml: ESC automático + REGICOR de referencia
 
   return (
     <div className="min-h-screen">
@@ -57,8 +56,6 @@ export default function App() {
         route={route}
         source={source}
         onSource={setSource}
-        scale={scale}
-        onScale={setScale}
         meta={cupo.data?.meta}
         loading={cupo.loading}
         nav={NAV}

@@ -92,7 +92,9 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
 ### Motor de reglas (`engine/`)
 - `risk_engine.py`: `RiskEngine(connector, config=rules.yaml, data_referencia=None, escala=None)` con
   `avalua(id)`, `avalua_cupo()` (ordenado por prioridad), `avalua_dades(DadesPacient)` y `series_renals(d)`.
-  Devuelve `ResultatPacient`: `nivell_risc` (ALT/MITJA/BAIX), `puntuacio_prioritat` (0-100), `categoria_kdigo`,
+  Devuelve `ResultatPacient`: `grup_ordre` / `grup_ordre_text` (orden de la lista de trabajo, 1-4; NO es una
+  clasificación), `puntuacio_prioritat` (0-100, ordena dentro del grupo), `text_risc_cv` (categoría de la tabla 5
+  ESC 2021 o el motivo por el que no la hay), `estat_risc_cv`, `regicor_referencia`, `nota_calibracio`, `categoria_kdigo`,
   `risc_kdigo`, `estat_renal`, `fge_actual`, `uacr_actual`, `pendent_fge`, `kfre_5a`, `risc_cv`, `escala_usada`,
   `risc_cv_percentatge`, `categoria_risc_cv`, `rang_referencia_cv`, `alertes_actives` (`Alerta`: regla, motiu,
   evidencia "Clase X - ESC/ERA 2026", pes, fonts), `accions_recomanades` (`Accio` con `nota` anti-inercia),
@@ -117,16 +119,27 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
 ### Decisiones tomadas (detalle en docs/decisions.md)
 - **Dataset:** 100 pacientes sintéticos (no ~30 ni `pacientes_cupo.csv`), histórico nov 2022 - nov 2026,
   fecha de referencia fija 13/11/2026. Los 8 casos trampa son P001-P008 (ver docs/dades_sintetiques.md).
-- **Escala de riesgo CV:** `risc_cardiovascular.escala_per_defecte: score2 | regicor | totes_dues`.
+- **Guía ESC 2021 (tabla 5, figuras 3 y 6; detalle en docs/decisions.md §11):** el único nivel de riesgo que
+  se muestra es "Bajo-moderado" / "Alto" / "Muy alto" (`categoria_risc_cv`); NO existen ALT/MITJA/BAIX.
+  Orden de la lista: 1) alertas urgentes (`possible_ic`, `possible_fra`, `derivacio_nefrologia`), 2) "Muy alto"
+  sin tratamiento adecuado, 3) "Alto" sin tratamiento adecuado, 4) resto; dentro, por puntuación. Bloque
+  "Hoy: N pacientes prioritarios" (`motor.prioritat.pacients_avui`). Alerta de RCV: 35 puntos "Muy alto", 20
+  "Alto" (`risc_cardiovascular.alertes`, editables en la Vista 3), texto propio para >= 70 años aparentemente
+  sanos (clase IIb). < 40 años: "Escala SCORE2 no aplicable (<40 años)" y solo reglas renales y pruebas
+  pendientes. Sin PAS, colesterol total o HDL: "Faltan datos para calcular el riesgo" + acción. Objetivos de
+  tratamiento escalonados: paso 1 (criterio de `ben_tractat`) PAS < 140 y LDL < 100; paso 2 (acción, no
+  alerta) PAS < 130 si se tolera y LDL < 70 / < 55 (por eso P007, LDL 68, sigue sin alertas).
+  Cohorte demo: 35 Bajo-moderado / 31 Alto / 34 Muy alto; grupos 8 / 26 / 25 / 41.
+- **Escala de riesgo CV:** `risc_cardiovascular.escala_per_defecte: totes_dues | score2 | regicor` (por defecto
+  `totes_dues`: escala ESC + REGICOR solo como referencia, sin reclasificar; calibración de país de riesgo bajo).
   `score2` es el modo ESC automático: DM2 de 40-69 años -> SCORE2-Diabetes; >= 70 años -> SCORE2-OP;
   < 70 sin diabetes -> SCORE2; + CKD Add-on si hay afectación renal (último FGe < 60 o UACR >= 30) y no es
   una caída aguda. SCORE2-Diabetes NO lleva Add-on por defecto (ya incluye el FGe; `ckd_addon.models`),
-  pendiente de validar por el médico. REGICOR se elige en caliente (`escala="regicor"`, selector de la web).
+  pendiente de validar por el médico. `escala="regicor"` (motor, CLI y API) queda solo para comparaciones
+  manuales; la web ya no tiene selector de calculadora.
 - **Cortes por edad (ESC), en `talls_per_edat`:** < 50 años 2,5% / 7,5%; 50-69 años 5% / 10%; >= 70 años
   7,5% / 15% (alto / muy alto). REGICOR: `talls_regicor` 10% / 15% (pendiente de validar).
-  Con estos cortes el cupo queda en 58 ALT / 1 MITJA / 41 BAIX (65 pacientes con RCV alto o muy alto y
-  55 alertas de RCV infratratado, cada una con peso 30 = umbral de ALT). Pendiente de decidir con el médico
-  si "riesgo alto" debe pesar menos que "muy alto"; el peso es editable desde la Vista 3.
+  NO cambiar estos cortes (tabla 5), las fórmulas ni los 100 pacientes de la cohorte demo.
 - **Clases de evidencia:** el código no tiene ninguna etiqueta "Clase / Nivel" propia; solo cita el campo
   `evidencia` de `rules.yaml` (si falta, cita únicamente la guía).
 - **Datos cruzados entre comunidades:** `dades_creuades` es verdadero si el paciente tiene analíticas de más
@@ -136,7 +149,7 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   (no versionada) antes de escribir. La API relee `rules.yaml` en cada petición.
 - **CDS Hooks:** `GET /cds-services` (discovery) y `POST /cds-services/cardioalert-patient-view` (hook
   `patient-view`, cuerpo con `context.patientId`). Devuelve una tarjeta por paciente: `summary` (< 140
-  caracteres), `indicator` (ALT = critical, MITJA = warning, BAIX = info), `detail` (Markdown: motivo y
+  caracteres), `indicator` (según `grup_ordre`: 1 = critical, 2 y 3 = warning, 4 = info), `detail` (Markdown: motivo y
   origen del dato) y `suggestions` (acciones del motor, sin `actions`: no escribe en la historia). Siempre
   hay tarjeta, también sin alertas (info). `source` y `scale` en la URL son una extensión propia. El motor
   no se toca: `api/cds_hooks.py` solo traduce.

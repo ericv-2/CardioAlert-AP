@@ -1,22 +1,29 @@
 import { ArrowLeftRight, CircleAlert, LoaderCircle, RotateCw } from "lucide-react";
-import { CATEGORIA_CV, KDIGO, NIVEL } from "../format.js";
+import { CATEGORIA_CV, KDIGO } from "../format.js";
 
 const CHIP = "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset";
 
-export function NivelChip({ nivel, largo = false }) {
-  const n = NIVEL[nivel];
-  if (!n) return null;
+// Nivel de riesgo CV: la categoría de la tabla 5 (ESC 2021) o, si no la hay, el motivo ("Faltan datos…").
+export function RiesgoCvChip({ p, prefijo = "" }) {
+  if (!p.categoria_risc_cv) {
+    return <span className={`${CHIP} whitespace-normal bg-slate-100 text-slate-700 ring-slate-300`}>{p.text_risc_cv || "No calculable"}</span>;
+  }
   return (
-    <span className={`${CHIP} ${n.chip}`} title={n.largo}>
-      <span className={`size-2 rounded-full ${n.dot}`} aria-hidden="true" />
-      {largo ? `${n.largo} (${n.texto})` : n.texto}
+    <span className={`${CHIP} ${CATEGORIA_CV[p.categoria_risc_cv]}`} title="Categoría de riesgo de la tabla 5 de la guía ESC 2021">
+      {prefijo}
+      {p.categoria_risc_cv}
     </span>
   );
 }
 
-export function CategoriaCvChip({ categoria }) {
-  if (!categoria) return <span className="text-xs text-muted">No calculable</span>;
-  return <span className={`${CHIP} ${CATEGORIA_CV[categoria] ?? "bg-slate-100 text-slate-700 ring-slate-200"}`}>{categoria}</span>;
+// Posición en la lista de trabajo: etiqueta neutra, sin semáforo (no es una clasificación de riesgo).
+export function GrupoTag({ p }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted" title="Grupo del orden de la lista de trabajo (no es una clasificación de riesgo)">
+      <span className="tabular grid size-4 place-items-center rounded-sm bg-clinic-100 text-[10px] font-semibold text-clinic-800">{p.grup_ordre}</span>
+      {p.grup_ordre_text}
+    </span>
+  );
 }
 
 export function KdigoTag({ categoria, riesgo }) {

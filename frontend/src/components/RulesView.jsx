@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CircleCheck, Info, LoaderCircle, RotateCcw, Save, ShieldCheck, TriangleAlert } from "lucide-react";
 import { api } from "../api.js";
-import { num } from "../format.js";
+import { GRUPO_CORTO, num } from "../format.js";
 import { Cargando, ErrorPanel } from "./ui.jsx";
 
 const aNumero = (texto) => Number(String(texto).replace(",", "."));
@@ -245,9 +245,12 @@ export default function RulesView({ kpis, recalculando, onSaved }) {
             <h2 className="text-sm font-semibold text-ink">Efecto en el cupo</h2>
             <p className="mt-0.5 text-xs text-muted">Con los parámetros guardados{antes ? "; entre paréntesis, antes del último cambio." : "."}</p>
             <dl className="mt-2">
-              <Efecto etiqueta="Prioridad ALT" ahora={kpis.alt} antes={antes?.alt} />
-              <Efecto etiqueta="Prioridad MITJA" ahora={kpis.mitja} antes={antes?.mitja} />
-              <Efecto etiqueta="Prioridad BAIX" ahora={kpis.baix} antes={antes?.baix} />
+              {Object.keys(kpis.categories).map((c) => (
+                <Efecto key={c} etiqueta={`Riesgo CV ${c}`} ahora={kpis.categories[c]} antes={antes?.categories[c]} />
+              ))}
+              {Object.keys(kpis.grups).map((g) => (
+                <Efecto key={g} etiqueta={`Lista: ${GRUPO_CORTO[g]}`} ahora={kpis.grups[g]} antes={antes?.grups[g]} />
+              ))}
               <Efecto etiqueta="Alertas activas" ahora={kpis.alertes} antes={antes?.alertes} />
               <Efecto etiqueta="UACR pendiente" ahora={kpis.uacr_pendent} antes={antes?.uacr_pendent} />
               <Efecto etiqueta="Riesgo CV alto o muy alto" ahora={kpis.risc_cv_alt} antes={antes?.risc_cv_alt} />
@@ -259,7 +262,7 @@ export default function RulesView({ kpis, recalculando, onSaved }) {
         )}
         <p className="flex items-start gap-2 px-1 text-xs text-muted">
           <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          El resto de reglas (pesos, fármacos, clases de evidencia) se edita directamente en config/rules.yaml.
+          El resto de reglas (fármacos, clases de evidencia, objetivos de tratamiento) se edita directamente en config/rules.yaml.
         </p>
       </aside>
     </form>

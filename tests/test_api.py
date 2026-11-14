@@ -28,16 +28,23 @@ def test_cupo_per_defecte(client):
     r = client.get("/api/cupo")
     assert r.status_code == 200
     cos = r.json()
-    assert cos["meta"]["escala"] == "score2" and cos["meta"]["font_usada"] == "local" and cos["meta"]["avis"] is None
+    assert cos["meta"]["escala"] == "totes_dues" and cos["meta"]["font_usada"] == "local" and cos["meta"]["avis"] is None
+    assert cos["meta"]["pacients_avui"] == 10 and cos["meta"]["guia_risc_cv"] == "ESC 2021"
     assert len(cos["pacients"]) == cos["kpis"]["total"] == 100
     k = cos["kpis"]
-    assert k["alt"] + k["mitja"] + k["baix"] == 100
-    punts = [p["puntuacio_prioritat"] for p in cos["pacients"]]
-    assert punts == sorted(punts, reverse=True)
+    # Categories de la taula 5 (ESC 2021) i grups de l'ordre de la llista: cap nivell ALT/MITJA/BAIX
+    assert set(k["categories"]) == {"Bajo-moderado", "Alto", "Muy alto"}
+    assert sum(k["categories"].values()) + k["sense_categoria"] == 100
+    assert set(k["grups"]) == {"1", "2", "3", "4"} and sum(k["grups"].values()) == 100
+    assert not {"alt", "mitja", "baix"} & set(k)
+    ordre = [(p["grup_ordre"], -p["puntuacio_prioritat"]) for p in cos["pacients"]]
+    assert ordre == sorted(ordre)
     p = cos["pacients"][0]
     assert {"escala_usada", "risc_cv_percentatge", "categoria_risc_cv", "rang_referencia_cv", "dades_creuades",
-            "nivell_risc", "resum", "alertes_actives"} <= set(p)
-    assert "nota_clinica_auto" not in p
+            "grup_ordre", "grup_ordre_text", "text_risc_cv", "regicor_referencia", "nota_calibracio", "resum",
+            "alertes_actives"} <= set(p)
+    assert "nota_clinica_auto" not in p and "nivell_risc" not in p
+    assert p["grup_ordre"] == 1 and p["categoria_risc_cv"] in ("Bajo-moderado", "Alto", "Muy alto")
     creuats = [p["pacient_id"] for p in cos["pacients"] if p["dades_creuades"]]
     assert "P003" in creuats and k["dades_creuades"] == len(creuats)  # José Fernández: eCAP + DIRAYA
 
@@ -92,7 +99,9 @@ def test_fitxa_marca_la_comunitat_habitual(client):
 
 def test_rules_consulta(client):
     cos = client.get("/api/rules").json()
-    assert cos["config"]["rules"]["risc_cardiovascular"]["escala_per_defecte"] == "score2"
+    assert cos["config"]["rules"]["risc_cardiovascular"]["escala_per_defecte"] == "totes_dues"
+    assert {"rules.risc_cardiovascular.alertes.alt.pes", "rules.risc_cardiovascular.alertes.molt_alt.pes",
+            "motor.prioritat.pacients_avui", "rules.possible_ic.pes"} <= {e["cami"] for e in cos["editables"]}
     camins = {e["cami"]: e for e in cos["editables"]}
     assert camins["rules.uacr_falta.max_mesos_sense_prova"]["valor"] == 12
     assert camins["rules.fge_descens.descens_anual_llindar"]["valor"] == 5.0
@@ -134,7 +143,8 @@ def test_rules_canvi_valid_fa_backup_i_recalcula(client, rules):
     ({"motor.guia": "Otra guía"}, "motor.guia"),                                                     # no editable
     ({"rules.uacr_falta.prova": "1234-5"}, "rules.uacr_falta.prova"),
     ({"rules.risc_cardiovascular.talls_per_edat.1.alt": 12}, "rules.risc_cardiovascular.talls_per_edat.1.molt_alt"),
-    ({"motor.prioritat.nivell_mitja": 40}, "motor.prioritat.nivell_mitja"),                          # >= nivell_alt
+    ({"rules.risc_cardiovascular.alertes.alt.pes": 40}, "rules.risc_cardiovascular.alertes.molt_alt.pes"),  # alt >= molt alt
+    ({"motor.prioritat.pacients_avui": 0}, "motor.prioritat.pacients_avui"),
     ({}, "canvis"),
 ])
 def test_rules_canvi_invalid_no_toca_el_fitxer(client, rules, canvis, cami_error):
@@ -144,3 +154,17 @@ def test_rules_canvi_invalid_no_toca_el_fitxer(client, rules, canvis, cami_error
     assert cami_error in r.json()["detail"]["errors"]
     assert rules.read_text(encoding="utf-8") == original
     assert not (rules.parent / "backups").exists()
+
+
+def test_punts_i_pacients_d_avui_editables(client):
+    abans = client.get("/api/cupo").json()
+    r = client.post("/api/rules", json={"canvis": {"rules.risc_cardiovascular.alertes.molt_alt.pes": 60,
+                                                   "motor.prioritat.pacients_avui": 5}})
+    assert r.status_code == 200, r.text
+    despres = client.get("/api/cupo").json()
+    assert despres["meta"]["pacients_avui"] == 5
+    # Els punts canvien la puntuació, però no la categoria de risc ni el grup de cap pacient
+    assert despres["kpis"]["categories"] == abans["kpis"]["categories"]
+    assert despres["kpis"]["grups"] == abans["kpis"]["grups"]
+    punts = lambda cos: {p["pacient_id"]: p["puntuacio_prioritat"] for p in cos["pacients"]}  # noqa: E731
+    assert punts(despres)["P005"] == punts(abans)["P005"] + 25

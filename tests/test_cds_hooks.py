@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from api.main import create_app
 
 URL = "/cds-services/cardioalert-patient-view"
-INDICADOR = {"ALT": "critical", "MITJA": "warning", "BAIX": "info"}
+INDICADOR = {1: "critical", 2: "warning", 3: "warning", 4: "info"}  # segons el grup de l'ordre de la llista
 
 
 @pytest.fixture(scope="module")
@@ -39,9 +39,13 @@ def test_targeta_del_pacient_amb_dada_creuada(client):
     cards = r.json()["cards"]
     assert len(cards) == 1
     c = cards[0]
-    assert c["indicator"] == "critical"  # José Fernández: nivell ALT
+    assert c["indicator"] == "warning"  # José Fernández: risc alt sense tractament adequat (grup 3)
     assert "\n" not in c["summary"] and len(c["summary"]) < 140
-    assert "ERC no diagnosticada" in c["summary"] and "+2 alertas" in c["summary"]
+    assert c["summary"] == "ERC no diagnosticada (+2 alertas)"
+    assert "Prioridad" not in c["summary"] + c["detail"]
+    # El nivell de risc és el de la taula 5 de l'ESC 2021, amb el % i el rang, i l'avís de calibració
+    assert c["detail"].startswith("**Riesgo cardiovascular: Alto** (SCORE2-Diabetes ")
+    assert "referencia 50-69 años" in c["detail"] and "REGICOR (calibrada para población catalana)" in c["detail"]
     assert c["source"]["label"].startswith("CardioAlert AP")
     # detail: motiu + origen de la dada (l'analítica de DIRAYA és la que confirma l'albuminúria)
     assert "UACR" in c["detail"] and "Origen del dato: DIRAYA - Andalucía, eCAP - Catalunya" in c["detail"]
@@ -54,14 +58,15 @@ def test_targeta_del_pacient_amb_dada_creuada(client):
     assert [s["isRecommended"] for s in c["suggestions"]] == [True] + [False] * (len(c["suggestions"]) - 1)
 
 
-def test_indicator_segons_el_nivell_de_tot_el_cupo(client):
-    """Cada pacient rep una targeta vàlida i l'indicator correspon al nivell de risc del motor."""
+def test_indicator_segons_el_grup_d_ordre_de_tot_el_cupo(client):
+    """Cada pacient rep una targeta vàlida i l'indicator correspon al grup de l'ordre de la llista."""
     vistos = set()
     for p in client.get("/api/cupo").json()["pacients"]:
         cards = client.post(URL, json=peticio(p["pacient_id"])).json()["cards"]
         assert len(cards) == 1
         c = cards[0]
-        assert c["indicator"] == INDICADOR[p["nivell_risc"]]
+        assert c["indicator"] == INDICADOR[p["grup_ordre"]]
+        assert f"**Riesgo cardiovascular: {p['text_risc_cv']}**" in c["detail"]
         assert 0 < len(c["summary"]) < 140 and c["detail"] and c["source"]["label"]
         assert ("suggestions" in c) == bool(p["accions_recomanades"])
         assert ("selectionBehavior" in c) == ("suggestions" in c)
@@ -79,7 +84,7 @@ def test_accepta_referencia_fhir_i_selector_d_escala(client):
     c = client.post(URL, json=peticio("Patient/P003")).json()["cards"][0]
     assert "ERC no diagnosticada" in c["summary"]
     reg = client.post(URL, params={"scale": "regicor"}, json=peticio("P003")).json()["cards"][0]
-    # Amb REGICOR el risc de José Fernández no arriba a alt: desapareix l'alerta de RCV calculada amb SCORE2-Diabetes
+    # REGICOR com a escala principal (comparació manual): la targeta ja no parla de SCORE2-Diabetes
     assert "SCORE2-Diabetes" in c["detail"] and "SCORE2-Diabetes" not in reg["detail"]
     assert client.post(URL, params={"scale": "framingham"}, json=peticio("P003")).status_code == 422
 

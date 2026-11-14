@@ -1,13 +1,9 @@
-import { Calculator, Database, HeartPulse, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Database, HeartPulse, LoaderCircle, TriangleAlert } from "lucide-react";
 import { fecha } from "../format.js";
 
 const FUENTES = [
   { value: "local", label: "Local (eCAP / DIRAYA Demo)" },
   { value: "remote", label: "Servidor FHIR remoto" },
-];
-const ESCALAS = [
-  { value: "score2", label: "ESC automático (SCORE2 / OP / Diabetes + CKD Add-on)" },
-  { value: "regicor", label: "REGICOR" },
 ];
 
 function Selector({ id, label, icon: Icon, value, onChange, options }) {
@@ -47,7 +43,7 @@ function NavLink({ href, active, children }) {
   );
 }
 
-export default function Header({ route, source, onSource, scale, onScale, meta, loading, extra, nav = [] }) {
+export default function Header({ route, source, onSource, meta, loading, extra, nav = [] }) {
   return (
     <header className="sticky top-0 z-30 shadow-sm">
       <div className="bg-clinic-600 text-white">
@@ -73,7 +69,6 @@ export default function Header({ route, source, onSource, scale, onScale, meta, 
           </nav>
           <div className="ml-auto flex flex-wrap items-end gap-3">
             <Selector id="sel-fuente" label="Fuente de datos" icon={Database} value={source} onChange={onSource} options={FUENTES} />
-            <Selector id="sel-escala" label="Calculadora CV" icon={Calculator} value={scale} onChange={onScale} options={ESCALAS} />
             {extra}
           </div>
         </div>
@@ -87,7 +82,10 @@ export default function Header({ route, source, onSource, scale, onScale, meta, 
                 Fuente activa: <strong className="font-semibold text-ink">{meta.font_etiqueta}</strong>
               </span>
               <span>Fecha de referencia: {fecha(meta.data_referencia)}</span>
-              <span>Guía: {meta.guia}</span>
+              <span>
+                Riesgo CV: tabla 5 de la guía {meta.guia_risc_cv} (SCORE2 / SCORE2-OP / SCORE2-Diabetes, país de riesgo bajo)
+              </span>
+              <span>Guía renal: {meta.guia}</span>
               <span>FGe: {meta.equacio_fge}</span>
             </>
           ) : (

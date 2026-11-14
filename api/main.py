@@ -3,7 +3,7 @@
     uvicorn api.main:app --reload --port 8000        # docs interactives a http://localhost:8000/docs
 
 Endpoints:
-    GET  /api/cupo?source=local|remote&scale=score2|regicor   KPIs + cupo avaluat i ordenat per prioritat
+    GET  /api/cupo?source=local|remote&scale=totes_dues|score2|regicor   KPIs + cupo en l'ordre de la llista de treball
     GET  /api/pacientes/{id}                                  fitxa: resultat, històric amb origen i sèries renals
     GET  /api/export/excel                                    descàrrega del cupo complet en .xlsx
     GET  /api/rules, POST /api/rules                          consulta i ajust dels llindars de rules.yaml
@@ -26,26 +26,25 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from connectors import Connector, FhirConnector, FhirRemoteConnector
 from engine import ResultatPacient, RiskEngine
-from engine.__main__ import meta_avaluacio
+from engine.__main__ import meta_avaluacio, recompte
 from engine.export_excel import bytes_cupo
-from engine.risk_engine import ARREL, CONFIG_DEFECTE, NOM_EQUACIO
+from engine.risk_engine import ARREL, CONFIG_DEFECTE, GRUPS_ORDRE, NOM_EQUACIO
 
 from . import cds_hooks
 from .rules_store import ErrorValidacio, RulesStore
 
 DADES_LOCALS = ARREL / "data" / "synthetic" / "fhir"
 Font = Literal["local", "remote"]
-Escala = Literal["score2", "regicor"]
+Escala = Literal["score2", "regicor", "totes_dues"]
 ETIQUETA_FONT = {"local": "Local (eCAP / DIRAYA Demo)", "remote": "Servidor FHIR remoto"}
 SEGONS_ENTRE_REINTENTS = 60  # després d'una fallada del servidor remot no s'hi torna fins passat aquest temps
 
 
 def _kpis(cupo: list[ResultatPacient]) -> dict:
-    nivells = Counter(r.nivell_risc for r in cupo)
     regles = Counter(regla for r in cupo for regla in r.regles_actives())
     return {
         "total": len(cupo),
-        "alt": nivells["ALT"], "mitja": nivells["MITJA"], "baix": nivells["BAIX"],
+        **recompte(cupo),  # categories (taula 5 ESC 2021), sense categoria i grups de l'ordre de la llista
         "alertes": sum(len(r.alertes_actives) for r in cupo),
         "mrc_no_diagnosticada": regles["mrc_no_diagnosticada"],
         "uacr_pendent": regles["uacr_falta"],
@@ -100,6 +99,9 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
         m = RiskEngine(con, store.carrega(), escala=escala)
         meta = {"font_demanada": font, "font_usada": usada, "font_etiqueta": ETIQUETA_FONT[usada], "avis": avis,
                 "escala": m.escala, "data_referencia": m.avui.isoformat(), "guia": m.motor["guia"],
+                "guia_risc_cv": m.regles["risc_cardiovascular"].get("guia"),
+                "pacients_avui": m.motor["prioritat"].get("pacients_avui", 10),
+                "grups_ordre": GRUPS_ORDRE,
                 "equacio_fge": NOM_EQUACIO.get(m.nom_equacio, m.nom_equacio)}
         return m, meta
 
@@ -162,7 +164,7 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
     def desa_rules(canvis: dict = Body(..., embed=True, examples=[{"rules.uacr_falta.max_mesos_sense_prova": 18}])) -> dict:
         """Cos: {"canvis": {"<camí>": <valor>, ...}}. Només els paràmetres de `editables`."""
         def prova(config: dict) -> None:
-            for escala in ("score2", "regicor"):
+            for escala in ("totes_dues", "regicor"):
                 RiskEngine(local, config, escala=escala).avalua_cupo()
         try:
             resultat = store.aplica(canvis, prova)

@@ -90,7 +90,13 @@ def test_config_regles():
     assert set(regles) == {"uacr_falta", "creatinina_falta", "fge_descens", "albuminuria_sense_accio",
                            "mrc_no_diagnosticada", "possible_ic", "risc_cardiovascular", "ben_tractat"}
     assert all(r["enabled"] is True for r in regles.values())
-    assert regles["risc_cardiovascular"]["escala_per_defecte"] == "score2"
+    rcv = regles["risc_cardiovascular"]
+    # ESC + REGICOR de referència per defecte; calibració de la regió de risc baix (Espanya, figura 3 ESC 2021)
+    assert (rcv["escala_per_defecte"], rcv["regio_score2"], rcv["edat_min"]) == ("totes_dues", "baix", 40)
+    assert rcv["alertes"]["molt_alt"]["pes"] > rcv["alertes"]["alt"]["pes"]
+    # Objectius de tractament de la figura 6 (ESC 2021)
+    assert regles["ben_tractat"]["pressio_objectiu"] == {"sistolica": 140, "sistolica_optima": 130, "diastolica": 90}
+    assert regles["ben_tractat"]["ldl_objectiu"] == {"base": 100, "alt": 70, "molt_alt": 55}
     # Talls ESC per edat (risc alt / molt alt, %): < 50, 50-69 i >= 70 anys
     assert [(t["edat_max"], t["alt"], t["molt_alt"]) for t in regles["risc_cardiovascular"]["talls_per_edat"]] == \
         [(49, 2.5, 7.5), (69, 5, 10), (200, 7.5, 15)]

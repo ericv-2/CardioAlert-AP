@@ -1,7 +1,7 @@
 """Lectura i edició segura de config/rules.yaml des de l'API.
 
 Només es poden tocar els paràmetres de EDITABLES (llista blanca amb rang i tipus). Abans d'escriure:
-1) es validen tipus i rangs, 2) es comprova la coherència (p. ex. tall "alt" < tall "molt alt"),
+1) es validen tipus i rangs, 2) es comprova la coherència (p. ex. tall "alt" < tall "molt alt", punts "alt" < punts "molt alt"),
 3) s'avalua tot el cupo amb la configuració nova i 4) es desa una còpia de seguretat del fitxer.
 L'escriptura es fa amb ruamel.yaml per conservar els comentaris del fitxer.
 """
@@ -60,10 +60,22 @@ EDITABLES: list[Editable] = [
     Editable("motor.derivacio_nefrologia.kfre_5a_pct", _G_DER, "KFRE a 5 años para derivar", "%", 1, 50, 0.5),
     Editable("motor.derivacio_nefrologia.fge_max", _G_DER, "FGe para derivar (por debajo de)", "mL/min/1,73m²", 10, 45, 1),
     Editable("motor.derivacio_nefrologia.uacr_min", _G_DER, "UACR para derivar", "mg/g", 100, 3000, 50),
-    Editable(f"{_RCV}.pes", _G_PRI, "Peso de la alerta de riesgo CV infratratado", "puntos", 0, 100, 1,
-             ajuda="Puntos que suma a la prioridad del paciente (0-100)"),
-    Editable("motor.prioritat.nivell_alt", _G_PRI, "Puntuación mínima del nivel ALT", "puntos", 1, 100, 1),
-    Editable("motor.prioritat.nivell_mitja", _G_PRI, "Puntuación mínima del nivel MITJA", "puntos", 1, 100, 1),
+    Editable(f"{_RCV}.alertes.molt_alt.pes", _G_PRI, "Puntos de la alerta de riesgo CV muy alto sin tratar", "puntos",
+             0, 100, 1, ajuda="Debe ser mayor que los puntos del riesgo alto"),
+    Editable(f"{_RCV}.alertes.alt.pes", _G_PRI, "Puntos de la alerta de riesgo CV alto sin tratar", "puntos", 0, 100, 1),
+    *(Editable(f"{cami}.pes", _G_PRI, f"Puntos de la alerta: {nom}", "puntos", 0, 100, 1) for cami, nom in [
+        ("rules.possible_ic", "posible insuficiencia cardíaca"),
+        ("motor.possible_fra", "caída aguda del FGe (posible FRA)"),
+        ("motor.derivacio_nefrologia", "criterio de derivación a Nefrología"),
+        ("rules.mrc_no_diagnosticada", "ERC no diagnosticada"),
+        ("rules.albuminuria_sense_accio", "albuminuria sin nefroprotección"),
+        ("rules.fge_descens", "pérdida rápida de FGe"),
+        ("rules.uacr_falta", "UACR pendiente"),
+        ("rules.creatinina_falta", "creatinina pendiente"),
+        ("motor.oportunitats.aas_prevencio_primaria", "AAS en prevención primaria"),
+    ]),
+    Editable("motor.prioritat.pacients_avui", _G_PRI, "Pacientes del bloque «Hoy: pacientes prioritarios»", "pacientes",
+             1, 50, 1),
 ]
 _PER_CAMI = {e.cami: e for e in EDITABLES}
 
@@ -177,7 +189,7 @@ class RulesStore:
                 errors[f"{_RCV}.talls_per_edat.{i}.molt_alt"] = "El corte de riesgo muy alto debe ser mayor que el de riesgo alto"
         if not r["talls_regicor"]["alt"] < r["talls_regicor"]["molt_alt"]:
             errors[f"{_RCV}.talls_regicor.molt_alt"] = "El corte de riesgo muy alto debe ser mayor que el de riesgo alto"
-        p = config["motor"]["prioritat"]
-        if not p["nivell_mitja"] < p["nivell_alt"]:
-            errors["motor.prioritat.nivell_mitja"] = "Debe ser menor que la puntuación del nivel ALT"
+        a = r["alertes"]
+        if not a["alt"]["pes"] < a["molt_alt"]["pes"]:
+            errors[f"{_RCV}.alertes.molt_alt.pes"] = "El riesgo muy alto debe sumar más puntos que el riesgo alto"
         return errors
