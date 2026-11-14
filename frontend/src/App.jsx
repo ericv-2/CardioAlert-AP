@@ -4,6 +4,9 @@ import { api } from "./api.js";
 import Header from "./components/Header.jsx";
 import CupoView from "./components/CupoView.jsx";
 import PatientView from "./components/PatientView.jsx";
+import RulesView from "./components/RulesView.jsx";
+
+const NAV = [{ href: "#/parametros", view: "parametros", label: "Parámetros del protocolo" }];
 
 function parseHash() {
   const [seg, id] = window.location.hash.replace(/^#\/?/, "").split("/");
@@ -53,6 +56,7 @@ export default function App() {
         onScale={setScale}
         meta={cupo.data?.meta}
         loading={cupo.loading}
+        nav={NAV}
         extra={
           <a
             href={api.excelUrl(sel)}
@@ -76,6 +80,7 @@ export default function App() {
             onBusqueda={setBusqueda}
           />
         )}
+        {route.view === "parametros" && <RulesView kpis={cupo.data?.kpis} recalculando={cupo.loading} onSaved={recalcular} />}
         {route.view === "paciente" && <PatientView id={route.id} sel={sel} version={version} fuentes={cupo.data?.kpis.fonts} />}
       </main>
     </div>
