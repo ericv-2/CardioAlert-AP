@@ -220,3 +220,36 @@ prova que falta surt com a acció recomanada (i al volant).
 alto" sense tractament adequat, 25 "Alto" sense tractament adequat i 41 a la resta. 59 alertes de risc CV
 (30 "muy alto", 21 "alto" i 8 amb el text de ≥ 70 anys); 77 pacients amb REGICOR de referència. Els 8
 casos trampa es continuen detectant i P007 i P008 continuen sense alertes.
+
+## 12. Cohort realista i selector de cohort (14/11/2026)
+
+Detall, fonts i taula comparativa a `docs/cohort_realista.md`.
+
+- **Dues cohorts.** "Demo (100)" (`data/synthetic`, intacta: 8 casos trampa i prevalences inflades per a
+  la demo) i "Cupo realista (1.500)" (`data/realista`), generada amb
+  `python scripts/generate_patients.py --perfil realista --n 1500` (llavor fixa) i calibrada amb REGICOR
+  (factors de risc) i ENRICA (MRC), estratificat per edat i sexe. Paràmetres a `config/cohort_realista.yaml`.
+- **Pacients individuals, no taules.** Cada pacient té el seu historial de 4 anys. Les prevalences
+  s'assignen per **quota exacta** dins de cada estrat d'edat i sexe, amb una predisposició latent per
+  pacient perquè els factors s'acumulin en els mateixos pacients (com a ENRICA).
+- **Taxes per edat abans que el total.** La MRC es genera amb les taxes per edat d'ENRICA; amb una piràmide
+  d'edat actual el total surt 17,5% (ENRICA: 15,1%). Pendent que el metge digui què prefereix fixar.
+- **"Veritat" del generador** a `data/realista/veritat.csv`: permet saber quantes MRC sense diagnosticar
+  hi ha de debò (175) i quantes en detecta el motor (129, sense falsos positius).
+- **Només local.** La cohort realista no es puja al servidor FHIR públic: l'script de pujada només llegeix
+  `data/synthetic` i l'API la llegeix del disc (CSV). Amb `cohort=realista`, la font és sempre local.
+- **L'IMC** s'afegeix al catàleg de proves (LOINC 39156-5) només per a aquesta cohort; el motor no el fa servir.
+- **API:** paràmetre `cohort=demo|realista` a `/api/cupo`, `/api/pacientes/{id}`, `/api/export/excel` i al
+  servei CDS Hooks; `GET /api/cohorts` diu quines hi ha. Si la realista no està generada, es torna a la
+  demo amb un avís.
+- **Resultats en memòria.** Cada cupo s'avalua un sol cop per combinació de cohort, font i escala, i se'n
+  guarden els resultats i el JSON ja serialitzat; la fitxa, l'Excel i la targeta CDS surten del mateix
+  càlcul. A cada petició es compara el contingut de `rules.yaml`: si ha canviat, es llença tot i es
+  recalcula (per això un canvi de paràmetres es continua veient a l'instant). Amb 1.500 pacients: uns 0,6 s
+  la primera petició i uns 0,05 s les següents; la resposta va comprimida (gzip).
+- **Web:** selector "Cohorte" a la capçalera (també `?cohort=realista` a la URL). En canviar de cohort es
+  torna a la llista, perquè els pacients d'una no existeixen a l'altra. La llista es pinta de 100 en 100 i
+  l'agenda de l'estació clínica mostra els 150 primers (la resta, amb el cercador).
+- **Limitacions conegudes:** no hi ha malaltia CV establerta ni hipercolesterolèmia familiar a les dades;
+  el seguiment i el tractament són supòsits de l'equip; les xifres dels articles no s'han tornat a
+  contrastar amb les taules originals.

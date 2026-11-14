@@ -54,13 +54,18 @@ config/       rules.yaml: `rules` (las 8 reglas con "enabled", umbrales, "eviden
               (ecuación FGe, fecha de referencia, FRA, derivación, oportunidades terapéuticas, prioridad).
               Todo pendiente de validar por el médico.
 engine/       Motor de reglas determinista (ver "Motor de reglas" más abajo).
-scripts/      generate_patients.py: generador sintético (seed 42) -> data/synthetic/.
+scripts/      generate_patients.py: generador sintético (seed 42) -> data/synthetic/; con `--perfil realista`
+              llama a cohort_realista.py (cupo calibrado con REGICOR y ENRICA) -> data/realista/.
               upload_to_fhir.py: sube (o borra con --esborra) los 100 bundles al servidor FHIR remoto.
 data/synthetic/  fhir/ (un bundle FHIR R4 por paciente) y csv/ (patients, observations, conditions, medications).
-tests/        test_connectors.py (FHIR == CSV + 8 casos trampa), test_dades_sintetiques.py (coherencia),
+data/realista/   cohorte realista (1.500 pacientes R0001-R1500, SOLO LOCAL): fhir/, csv/ y veritat.csv (lo que
+              el generador "sabe" de cada paciente). Parámetros en config/cohort_realista.yaml.
+tests/        test_cohort_realista.py (prevalencias objetivo y coherencia de la cohorte realista),
+              test_connectors.py (FHIR == CSV + 8 casos trampa), test_dades_sintetiques.py (coherencia),
               test_engine.py (fórmulas, casos trampa, selección de escala ESC, CKD Add-on, cortes por edad,
               REGICOR, volante), test_api.py, test_cds_hooks.py, test_export_excel.py, test_fhir_remote.py (servidor simulado).
-docs/         dades_sintetiques.md (criterios de generación), decisions.md (decisiones de diseño).
+docs/         dades_sintetiques.md (criterios de generación), decisions.md (decisiones de diseño) y
+              cohort_realista.md (fuentes, prevalencias objetivo y obtenidas de la cohorte realista).
 api/          main.py (FastAPI + CORS: /api/cupo, /api/pacientes/{id}, /api/export/excel, /api/rules y el
               servicio CDS Hooks /cds-services), cds_hooks.py (traduce un ResultatPacient a una tarjeta CDS) y
               rules_store.py (edición validada de rules.yaml: lista blanca, rangos, copia en config/backups/).
@@ -76,6 +81,9 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   (`py -3.14 -m venv .venv`) y usar `.venv/Scripts/python`.
 - `pip install -r requirements.txt`
 - `python scripts/generate_patients.py` regenera los datos (determinista; no editar data/synthetic a mano).
+- `python scripts/generate_patients.py --perfil realista --n 1500` regenera la cohorte realista en
+  data/realista (determinista; opciones `--mrc-sense-dx`, `--prevalenca-ic`, `--llavor`, `--sortida`).
+  NO subirla al servidor FHIR público.
 - `python -m pytest` ejecuta los tests.
 - `python -m engine` resume el cupo priorizado; `python -m engine P003` imprime la nota clínica de un paciente;
   `python -m engine --excel` escribe `exports/cupo_evaluado.xlsx`; `--escala regicor` cambia la calculadora.
@@ -111,7 +119,7 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   (sección `motor`). `ben_tractat` es el control positivo: con RCV alto pero tratamiento y objetivos
   correctos NO se alerta. Las oportunidades terapéuticas (iSGLT2, IECA/ARA-II, estatina, PA, finerenona,
   arGLP-1) generan acciones, no alertas.
-- `puntuacio_prioritat` = suma de `pes` de las alertas + peso KDIGO (máx. 100); niveles según `motor.prioritat`.
+- `puntuacio_prioritat` = suma de `pes` de las alertas + peso KDIGO (máx. 100); solo ordena dentro de cada grupo.
 - Textos de salida (alertas, acciones, nota) en castellano; cero umbrales en el código.
 - Coeficientes de SCORE2/SCORE2-OP/SCORE2-Diabetes/CKD Add-on contrastados con el paquete R RiskScorescvd;
   los de REGICOR y KFRE y las clases de evidencia de `rules.yaml` están pendientes de verificar con el médico.
@@ -119,6 +127,15 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
 ### Decisiones tomadas (detalle en docs/decisions.md)
 - **Dataset:** 100 pacientes sintéticos (no ~30 ni `pacientes_cupo.csv`), histórico nov 2022 - nov 2026,
   fecha de referencia fija 13/11/2026. Los 8 casos trampa son P001-P008 (ver docs/dades_sintetiques.md).
+- **Cohorte realista (docs/cohort_realista.md, decisions.md §12):** 1.500 adultos (>= 18 años) generados
+  paciente a paciente con cuotas exactas por edad y sexo. Objetivos: REGICOR (35-54 años: DM 7,4%, HTA 21,2%,
+  hipercolesterolemia 32%, fumadores 32,3%; global 14 / 40 / 43 / 24%, IMC 27,2) y ENRICA (ERC 4,8% / 17,4% /
+  37,3% por edad; hombres 23,1%, mujeres 7,3%); 2/3 de las ERC sin diagnóstico. La ERC global sale 17,5% (no
+  15,1%) porque se priorizan las tasas por edad con una pirámide actual. Resultado del motor: 406
+  Bajo-moderado / 340 Alto / 246 Muy alto / 456 menores de 40 / 52 "Faltan datos"; grupos 28 / 224 / 331 / 917;
+  detecta 129 de 175 ERC sin diagnosticar. La API y la web eligen cohorte (`cohort=demo|realista`,
+  `GET /api/cohorts`, selector "Cohorte"); cada cupo se evalúa una vez y se guarda en memoria hasta que
+  cambia `rules.yaml` (por contenido). La realista se lee de CSV y solo en local.
 - **Guía ESC 2021 (tabla 5, figuras 3 y 6; detalle en docs/decisions.md §11):** el único nivel de riesgo que
   se muestra es "Bajo-moderado" / "Alto" / "Muy alto" (`categoria_risc_cv`); NO existen ALT/MITJA/BAIX.
   Orden de la lista: 1) alertas urgentes (`possible_ic`, `possible_fra`, `derivacio_nefrologia`), 2) "Muy alto"
@@ -146,7 +163,7 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   de un origen con formato "Sistema - Comunidad" (p. ej. "eCAP - Catalunya" + "DIRAYA - Andalucía").
 - **API y rules.yaml:** `POST /api/rules` solo acepta los parámetros de `api/rules_store.py::EDITABLES`,
   valida rangos y coherencia, prueba el motor con la config nueva y guarda copia en `config/backups/`
-  (no versionada) antes de escribir. La API relee `rules.yaml` en cada petición.
+  (no versionada) antes de escribir. La API compara `rules.yaml` en cada petición y solo recalcula si cambia.
 - **CDS Hooks:** `GET /cds-services` (discovery) y `POST /cds-services/cardioalert-patient-view` (hook
   `patient-view`, cuerpo con `context.patientId`). Devuelve una tarjeta por paciente: `summary` (< 140
   caracteres), `indicator` (según `grup_ordre`: 1 = critical, 2 y 3 = warning, 4 = info), `detail` (Markdown: motivo y
