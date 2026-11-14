@@ -125,3 +125,30 @@ ho diu al motiu ("dato cruzado entre DIRAYA - Andalucía y eCAP - Catalunya").
   paginades) i ho desa en memòria. Un test comprova que el cupo avaluat és idèntic al local.
 - Si el servidor falla, tarda més de 60 s o no té els pacients, l'API torna a les dades locals, la web
   mostra un avís i no es reintenta fins passats 60 s (per no penalitzar cada clic).
+
+## 10. Servei CDS Hooks i estació clínica simulada (14/11/2026)
+
+- **Servei CDS Hooks.** `GET /cds-services` (discovery) i `POST /cds-services/cardioalert-patient-view`
+  (hook `patient-view`), seguint l'especificació HL7 CDS Hooks 2.0. `api/cds_hooks.py` només tradueix el
+  `ResultatPacient` del motor a una targeta; el motor no s'ha modificat.
+- **Una targeta per pacient.** `summary` d'una línia i de menys de 140 caràcters (nivell + primera alerta +
+  "(+N alertas)"; el `resum` del motor és massa llarg per a aquest camp); `indicator` segons el nivell
+  (ALT = `critical`, MITJA = `warning`, BAIX = `info`); `detail` en Markdown amb el motiu de cada alerta i
+  l'origen de la dada (si l'alerta no porta fonts, les del pacient); `suggestions` amb les accions del
+  motor en el mateix ordre (la primera, `isRecommended`) i `selectionBehavior: any`.
+- **Suggeriments sense `actions`.** Són informatius: el servei no escriu res a la història clínica.
+- **Sempre es retorna targeta**, també per als pacients sense alertes (`info`: "Sin alertas..." o
+  "Bien tratado..."), perquè a la demo es vegi el control positiu. En un desplegament real potser convé
+  retornar `cards: []` en aquests casos per no generar fatiga d'alertes. Pendent de decidir amb el metge.
+- **Extensió pròpia:** els paràmetres `source` i `scale` a la URL (els mateixos selectors que la resta de
+  l'API). `context.patientId` accepta "P003" o "Patient/P003". Errors: 400 si el hook no és `patient-view`
+  o falta `patientId`; 404 si el pacient no existeix. No es fa servir `prefetch` ni `fhirServer`.
+- **Estació clínica simulada** (`#/estacion`, `frontend/src/components/EstacionView.jsx`). Imita de forma
+  genèrica una història clínica d'atenció primària (agenda, dades del pacient, diagnòstics, medicació i
+  analítiques agrupades per informe = data + sistema d'origen). No porta el nom ni el disseny de cap
+  producte real i mostra sempre l'etiqueta "Simulación – datos sintéticos". Fa de client CDS Hooks: en
+  obrir un pacient crida el hook i pinta la targeta al requadre lateral (i deixa veure el JSON intercanviat).
+  Els noms "eCAP - Catalunya" o "DIRAYA - Andalucía" només hi apareixen com a sistema d'origen de cada informe.
+- **"Informe recuperado de otra comunidad".** L'API retorna `comunitat_habitual` (la comunitat amb més
+  analítiques del pacient, entre els orígens "Sistema - Comunitat"); la web etiqueta els informes d'una
+  altra comunitat (p. ex. el de DIRAYA de P003). Els orígens sense comunitat ("Lab. Hospital") no s'etiqueten.

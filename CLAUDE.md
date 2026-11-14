@@ -59,13 +59,15 @@ scripts/      generate_patients.py: generador sintético (seed 42) -> data/synth
 data/synthetic/  fhir/ (un bundle FHIR R4 por paciente) y csv/ (patients, observations, conditions, medications).
 tests/        test_connectors.py (FHIR == CSV + 8 casos trampa), test_dades_sintetiques.py (coherencia),
               test_engine.py (fórmulas, casos trampa, selección de escala ESC, CKD Add-on, cortes por edad,
-              REGICOR, volante), test_api.py, test_export_excel.py, test_fhir_remote.py (servidor simulado).
+              REGICOR, volante), test_api.py, test_cds_hooks.py, test_export_excel.py, test_fhir_remote.py (servidor simulado).
 docs/         dades_sintetiques.md (criterios de generación), decisions.md (decisiones de diseño).
-api/          main.py (FastAPI + CORS: /api/cupo, /api/pacientes/{id}, /api/export/excel, /api/rules) y
+api/          main.py (FastAPI + CORS: /api/cupo, /api/pacientes/{id}, /api/export/excel, /api/rules y el
+              servicio CDS Hooks /cds-services), cds_hooks.py (traduce un ResultatPacient a una tarjeta CDS) y
               rules_store.py (edición validada de rules.yaml: lista blanca, rangos, copia en config/backups/).
 frontend/     Web React (Vite + Tailwind + Lucide). src/App.jsx (rutas por hash y selectores),
               src/components/: Header, CupoView (Vista 1), PatientView + RenalChart + NoteModal (Vista 2),
-              RulesView (Vista 3). Sin lógica clínica: todo viene de la API.
+              RulesView (Vista 3), EstacionView (estación clínica simulada, cliente CDS Hooks).
+              Sin lógica clínica: todo viene de la API.
 exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no versionado).
 ```
 
@@ -80,7 +82,7 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
 - **Arrancar la demo (dos terminales, desde la raíz del repo):**
   1. API: `python -m uvicorn api.main:app --port 8000` (documentación interactiva en http://localhost:8000/docs).
   2. Web: `cd frontend`, `npm install` (solo la primera vez) y `npm run dev` -> http://localhost:5173.
-     La web llama a `/api/...` y Vite lo reenvía al puerto 8000 (`VITE_API_PROXY` para cambiarlo).
+     La web llama a `/api/...` y `/cds-services/...` y Vite lo reenvía al puerto 8000 (`VITE_API_PROXY` para cambiarlo).
   Requiere Node.js >= 20. `npm run build` genera `frontend/dist/`.
 - Servidor FHIR remoto (https://hapi.fhir.org/baseR4, público): `python scripts/upload_to_fhir.py` sube los
   100 pacientes sintéticos con `meta.tag` "the-goats-hackathon" (ya subidos el 14/11/2026; es un
@@ -132,6 +134,18 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
 - **API y rules.yaml:** `POST /api/rules` solo acepta los parámetros de `api/rules_store.py::EDITABLES`,
   valida rangos y coherencia, prueba el motor con la config nueva y guarda copia en `config/backups/`
   (no versionada) antes de escribir. La API relee `rules.yaml` en cada petición.
+- **CDS Hooks:** `GET /cds-services` (discovery) y `POST /cds-services/cardioalert-patient-view` (hook
+  `patient-view`, cuerpo con `context.patientId`). Devuelve una tarjeta por paciente: `summary` (< 140
+  caracteres), `indicator` (ALT = critical, MITJA = warning, BAIX = info), `detail` (Markdown: motivo y
+  origen del dato) y `suggestions` (acciones del motor, sin `actions`: no escribe en la historia). Siempre
+  hay tarjeta, también sin alertas (info). `source` y `scale` en la URL son una extensión propia. El motor
+  no se toca: `api/cds_hooks.py` solo traduce.
+- **Estación clínica simulada** (`#/estacion` y `#/estacion/P003`, enlace en la navegación): historia
+  clínica GENÉRICA de atención primaria (sin nombre, logos ni diseño de ningún producto real), con la
+  etiqueta visible "Simulación – datos sintéticos". Al abrir un paciente llama al hook `patient-view` y
+  muestra la tarjeta en el panel lateral. Los informes de una comunidad distinta de `comunitat_habitual`
+  (campo de `/api/pacientes/{id}`: la comunidad con más analíticas) llevan "Informe recuperado de otra
+  comunidad" (p. ej. el de DIRAYA de P003).
 - **Fuente remota:** la API descarga el servidor FHIR una sola vez y lo guarda en memoria; si falla, tarda
   más de 60 s o no tiene nuestros pacientes, vuelve a los datos locales con un aviso visible en la web y no
   reintenta hasta pasados 60 s.
