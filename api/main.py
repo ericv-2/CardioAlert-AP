@@ -13,6 +13,8 @@ cada petició (un canvi de llindars es veu a l'instant).
 """
 from __future__ import annotations
 
+import threading
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Callable, Literal
@@ -20,7 +22,7 @@ from typing import Callable, Literal
 from fastapi import Body, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from connectors import Connector, FhirConnector
+from connectors import Connector, FhirConnector, FhirRemoteConnector
 from engine import ResultatPacient, RiskEngine
 from engine.__main__ import meta_avaluacio
 from engine.export_excel import bytes_cupo
@@ -32,6 +34,7 @@ DADES_LOCALS = ARREL / "data" / "synthetic" / "fhir"
 Font = Literal["local", "remote"]
 Escala = Literal["score2", "regicor"]
 ETIQUETA_FONT = {"local": "Local (eCAP / DIRAYA Demo)", "remote": "Servidor FHIR remoto"}
+SEGONS_ENTRE_REINTENTS = 60  # després d'una fallada del servidor remot no s'hi torna fins passat aquest temps
 
 
 def _kpis(cupo: list[ResultatPacient]) -> dict:
@@ -53,29 +56,40 @@ def _kpis(cupo: list[ResultatPacient]) -> dict:
 
 
 def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path = DADES_LOCALS,
-               remote_factory: Callable[[], Connector] | None = None) -> FastAPI:
+               remote_factory: Callable[[], Connector] | None = None, remot_public: bool = False) -> FastAPI:
     """remote_factory: funció que retorna el connector remot (pot fallar o trigar: llavors es fa servir
-    el local i la resposta porta un avís)."""
+    el local i la resposta porta un avís). remot_public=True: si no es passa cap factory, es fa servir el
+    servidor públic de HAPI (FhirRemoteConnector)."""
     app = FastAPI(title="CardioAlert AP", version="1.0",
                   description="Cribado cardiorrenal-metabólico pasivo para Atención Primaria (datos sintéticos).")
     app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
                        allow_methods=["GET", "POST"], allow_headers=["*"], expose_headers=["Content-Disposition"])
     store = RulesStore(rules_path)
     local = FhirConnector(dades_locals)
-    estat: dict = {"remot": None}
+    if remote_factory is None and remot_public:
+        def remote_factory() -> Connector:
+            return FhirRemoteConnector(data_referencia=store.carrega()["motor"].get("data_referencia"))
+    estat: dict = {"remot": None, "avis": None, "fallada": None}
+    pany = threading.Lock()  # una sola descàrrega encara que arribin peticions alhora
 
     def connector(font: Font) -> tuple[Connector, str, str | None]:
-        """Retorna (connector, font realment usada, avís). El remot es descarrega un cop i es desa en memòria."""
+        """Retorna (connector, font realment usada, avís). El remot es descarrega un cop i es desa en memòria;
+        si falla o tarda massa, es torna a les dades locals amb un avís."""
         if font == "local":
             return local, "local", None
-        if estat["remot"] is None:
-            if remote_factory is None:
-                return local, "local", "El conector FHIR remoto no está configurado: se muestran los datos locales."
-            try:
-                estat["remot"] = remote_factory()
-            except Exception as exc:
-                return local, "local", (f"No se pudo leer el servidor FHIR remoto ({type(exc).__name__}: {exc}). "
-                                        "Se muestran los datos locales.")
+        if remote_factory is None:
+            return local, "local", "El conector FHIR remoto no está configurado: se muestran los datos locales."
+        with pany:
+            recent = estat["fallada"] is not None and time.monotonic() - estat["fallada"] < SEGONS_ENTRE_REINTENTS
+            if estat["remot"] is None and not recent:
+                try:
+                    estat["remot"] = remote_factory()
+                except Exception as exc:
+                    estat["fallada"] = time.monotonic()
+                    estat["avis"] = (f"No se pudo leer el servidor FHIR remoto ({type(exc).__name__}: {exc}). "
+                                     "Se muestran los datos locales.")
+            if estat["remot"] is None:
+                return local, "local", estat["avis"]
         return estat["remot"], "remote", None
 
     def motor(font: Font, escala: Escala | None) -> tuple[RiskEngine, dict]:
@@ -154,4 +168,4 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
     return app
 
 
-app = create_app()
+app = create_app(remot_public=True)
