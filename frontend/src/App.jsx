@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api.js";
 import Header from "./components/Header.jsx";
 import CupoView from "./components/CupoView.jsx";
+import PatientView from "./components/PatientView.jsx";
 
 function parseHash() {
   const [seg, id] = window.location.hash.replace(/^#\/?/, "").split("/");
@@ -64,6 +65,7 @@ export default function App() {
             onBusqueda={setBusqueda}
           />
         )}
+        {route.view === "paciente" && <PatientView id={route.id} sel={sel} version={version} fuentes={cupo.data?.kpis.fonts} />}
       </main>
     </div>
   );

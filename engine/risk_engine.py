@@ -72,6 +72,18 @@ ACCIONS: dict[str, tuple[str, str | None]] = {
 }
 
 
+# Accions que generen una petició al volant: clau -> (secció, text de la petició)
+VOLANT: dict[str, tuple[str, str]] = {
+    "sol_uacr": ("Laboratorio", "Cociente albúmina/creatinina (UACR) en orina"),
+    "sol_creatinina": ("Laboratorio", "Creatinina sérica con FGe"),
+    "retest_fra": ("Laboratorio", "Creatinina sérica con FGe de control en 1-2 semanas"),
+    "confirmar_mrc": ("Laboratorio", "FGe y UACR de confirmación a los 3 meses"),
+    "revisar_descens": ("Laboratorio", "FGe y UACR de control en 3-6 meses"),
+    "derivar_nefro": ("Interconsultas y pruebas", "Interconsulta a Nefrología"),
+    "cribratge_ic": ("Interconsultas y pruebas", "ECG y ecocardiograma (cribado de insuficiencia cardíaca)"),
+}
+
+
 @dataclass(frozen=True)
 class Alerta:
     regla: str  # clau de la regla (config/rules.yaml)
@@ -119,6 +131,7 @@ class ResultatPacient:
     fonts_dades: list[str] = field(default_factory=list)  # sistemes d'origen integrats
     dades_creuades: bool = False  # analítiques de més d'una comunitat (orígens "Sistema - Comunitat")
     nota_clinica_auto: str = ""  # esborrany per enganxar a eCAP/DIRAYA
+    volant_auto: str = ""  # esborrany de volant (analítiques i interconsultes); buit si no cal demanar res
 
     def regles_actives(self) -> set[str]:
         return {a.regla for a in self.alertes_actives}
@@ -288,6 +301,7 @@ class RiskEngine:
         )
         res.resum = self._resum(res)
         res.nota_clinica_auto = self._nota_clinica(d, f, res)
+        res.volant_auto = self._volant(f, res)
         return res
 
     def series_renals(self, d: DadesPacient) -> dict[str, list[Mesura]]:
@@ -683,6 +697,31 @@ class RiskEngine:
         if res.accions_recomanades:
             return f"Sin alertas. Oportunidad: {res.accions_recomanades[0].text}"
         return "Sin alertas ni acciones pendientes"
+
+    def _volant(self, f: _Fets, res: ResultatPacient) -> str:
+        """Esborrany de volant amb les peticions que surten de les accions recomanades ("" si no n'hi ha)."""
+        seccions: dict[str, list[str]] = {}
+        for a in res.accions_recomanades:
+            if a.clau in VOLANT:
+                seccio, text = VOLANT[a.clau]
+                seccions.setdefault(seccio, []).append(text)
+        if not seccions:
+            return ""
+        linies = [
+            f"[CardioAlert AP · {_d(self.avui)} · borrador automático: revisar antes de firmar]",
+            f"VOLANTE DE PETICIÓN · {res.nom} ({res.pacient_id}), {'varón' if res.sexe == 'H' else 'mujer'} de {res.edat} años",
+        ]
+        for seccio, peticions in seccions.items():
+            linies.append(f"{seccio}:")
+            linies += [f"- {p}" for p in peticions]
+        if res.alertes_actives:
+            linies.append("Motivo de la petición:")
+            linies += [f"- {a.titol}: {a.motiu}." for a in res.alertes_actives]
+        if f.fge_ult:
+            suport = f"FGe {_n(f.fge_ult.valor)} mL/min/1,73m² ({_d(f.fge_ult.data)})"
+            suport += f", UACR {_n(f.uacr_ult.valor)} mg/g ({_d(f.uacr_ult.data)})" if f.uacr_ult else ", sin UACR registrado"
+            linies.append(f"Datos de apoyo: {suport}. KDIGO {res.categoria_kdigo}.")
+        return "\n".join(linies)
 
     def _nota_clinica(self, d: DadesPacient, f: _Fets, res: ResultatPacient) -> str:
         p = d.pacient

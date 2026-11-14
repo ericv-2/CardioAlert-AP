@@ -96,7 +96,7 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
         pacients = []
         for r in resultats:
             fila = r.to_dict()
-            del fila["nota_clinica_auto"]  # la nota només viatja a la fitxa
+            del fila["nota_clinica_auto"], fila["volant_auto"]  # nota i volant només viatgen a la fitxa
             pacients.append(fila)
         return {"meta": meta, "kpis": _kpis(resultats), "pacients": pacients}
 
@@ -115,6 +115,9 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             "medicacions": d.medicacions,
             "analitiques": d.analitiques,  # històric complet, cada registre amb el seu origen
             "series": series,
+            # Llindars de rules.yaml que la gràfica dibuixa com a línies de referència
+            "llindars": {"fge": m.regles["mrc_no_diagnosticada"]["fge_llindar"],
+                         "uacr": m.regles["mrc_no_diagnosticada"]["uacr_llindar"]},
         }
 
     @app.get("/api/rules")

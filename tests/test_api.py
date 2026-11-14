@@ -78,6 +78,9 @@ def test_fitxa_del_pacient(client):
     assert len(cos["series"]["fge"]) >= 3 and {"data", "valor", "origen"} <= set(cos["series"]["fge"][0])
     assert any(m["origen"] == "DIRAYA - Andalucía" for m in cos["series"]["uacr"])
     assert cos["diagnostics"] and cos["medicacions"]
+    assert cos["llindars"] == {"fge": 60, "uacr": 30}
+    assert cos["pacient"]["volant_auto"] == ""  # sense peticions de laboratori ni interconsultes
+    assert client.get("/api/pacientes/P001").json()["pacient"]["volant_auto"].startswith("[CardioAlert AP")
     assert client.get("/api/pacientes/P999").status_code == 404
 
 

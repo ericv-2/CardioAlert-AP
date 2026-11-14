@@ -412,3 +412,15 @@ def test_sense_etiquetes_d_evidencia_inventades(connector, config):
     r = per_nom(RiskEngine(connector, config), "Antonio García")
     alerta = next(a for a in r.alertes_actives if a.regla == "uacr_falta")
     assert alerta.evidencia == "ESC/ERA 2026"
+
+
+# --- Volant -----------------------------------------------------------------------------------
+
+def test_volant_amb_peticions_i_sense(motor):
+    antonio = per_nom(motor, "Antonio García")  # UACR pendent
+    assert antonio.volant_auto.startswith("[CardioAlert AP")
+    assert "Laboratorio:" in antonio.volant_auto and "UACR" in antonio.volant_auto
+    assert "Motivo de la petición:" in antonio.volant_auto
+    dolores = per_nom(motor, "Dolores Ruiz")  # possible IC
+    assert "Interconsultas y pruebas:" in dolores.volant_auto and "ecocardiograma" in dolores.volant_auto
+    assert per_nom(motor, "Francisco Jiménez").volant_auto == ""  # ben tractat: res a demanar
