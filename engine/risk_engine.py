@@ -117,6 +117,7 @@ class ResultatPacient:
     objectius_pendents: list[str] = field(default_factory=list)
     resum: str = ""  # una línia: per què + acció
     fonts_dades: list[str] = field(default_factory=list)  # sistemes d'origen integrats
+    dades_creuades: bool = False  # analítiques de més d'una comunitat (orígens "Sistema - Comunitat")
     nota_clinica_auto: str = ""  # esborrany per enganxar a eCAP/DIRAYA
 
     def regles_actives(self) -> set[str]:
@@ -283,10 +284,16 @@ class RiskEngine:
             ben_tractat=pendents == [] and not s.alertes,
             objectius_pendents=pendents or [],
             fonts_dades=sorted({a.origen for a in d.analitiques if a.origen}),
+            dades_creuades=len({a.origen for a in d.analitiques if a.origen and " - " in a.origen}) > 1,
         )
         res.resum = self._resum(res)
         res.nota_clinica_auto = self._nota_clinica(d, f, res)
         return res
+
+    def series_renals(self, d: DadesPacient) -> dict[str, list[Mesura]]:
+        """Evolució del FGe (recalculat amb l'equació configurada) i de l'UACR, amb el sistema d'origen."""
+        f = self._fets(d)
+        return {"fge": f.fge, "uacr": f.uacr}
 
     # --- Fets -------------------------------------------------------------------------------
 

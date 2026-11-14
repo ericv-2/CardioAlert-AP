@@ -4,3 +4,7 @@ __pycache__/
 .venv/
 venv/
 .env
+config/backups/
+exports/
+node_modules/
+frontend/dist/
