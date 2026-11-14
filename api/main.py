@@ -5,6 +5,7 @@
 Endpoints:
     GET  /api/cupo?source=local|remote&scale=score2|regicor   KPIs + cupo avaluat i ordenat per prioritat
     GET  /api/pacientes/{id}                                  fitxa: resultat, històric amb origen i sèries renals
+    GET  /api/export/excel                                    descàrrega del cupo complet en .xlsx
     GET  /api/rules, POST /api/rules                          consulta i ajust dels llindars de rules.yaml
 
 L'API no té lògica clínica: tot surt del motor (`engine/`) i de `config/rules.yaml`, que es rellegeix a
@@ -16,11 +17,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable, Literal
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from connectors import Connector, FhirConnector
 from engine import ResultatPacient, RiskEngine
+from engine.__main__ import meta_avaluacio
+from engine.export_excel import bytes_cupo
 from engine.risk_engine import ARREL, CONFIG_DEFECTE, NOM_EQUACIO
 
 from .rules_store import ErrorValidacio, RulesStore
@@ -83,8 +86,6 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
                 "equacio_fge": NOM_EQUACIO.get(m.nom_equacio, m.nom_equacio)}
         return m, meta
 
-    app.state.motor = motor  # reutilitzat pels endpoints que s'afegeixen des d'altres mòduls
-
     @app.get("/api/health")
     def health() -> dict:
         return {"ok": True}
@@ -119,6 +120,18 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             "llindars": {"fge": m.regles["mrc_no_diagnosticada"]["fge_llindar"],
                          "uacr": m.regles["mrc_no_diagnosticada"]["uacr_llindar"]},
         }
+
+    @app.get("/api/export/excel")
+    def excel(source: Font = "local", scale: Escala | None = None) -> Response:
+        """Descarrega el cupo complet (totes les columnes, textos sencers) en .xlsx."""
+        m, meta = motor(source, scale)
+        info = meta_avaluacio(m, meta["font_etiqueta"])
+        if meta["avis"]:
+            info["Aviso de la fuente"] = meta["avis"]
+        return Response(
+            bytes_cupo(m.avalua_cupo(), info),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="cupo_evaluado.xlsx"'})
 
     @app.get("/api/rules")
     def rules() -> dict:

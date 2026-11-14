@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Download } from "lucide-react";
 import { api } from "./api.js";
 import Header from "./components/Header.jsx";
 import CupoView from "./components/CupoView.jsx";
@@ -52,6 +53,16 @@ export default function App() {
         onScale={setScale}
         meta={cupo.data?.meta}
         loading={cupo.loading}
+        extra={
+          <a
+            href={api.excelUrl(sel)}
+            download="cupo_evaluado.xlsx"
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-white px-3 text-sm font-semibold text-clinic-700 shadow-sm hover:bg-clinic-50"
+          >
+            <Download className="size-4" aria-hidden="true" />
+            Descargar Excel (.xlsx)
+          </a>
+        }
       />
       <main className="mx-auto max-w-[1440px] px-4 pb-16 pt-5 lg:px-6">
         {route.view === "cupo" && (
