@@ -84,6 +84,12 @@ def test_fitxa_del_pacient(client):
     assert client.get("/api/pacientes/P999").status_code == 404
 
 
+def test_fitxa_marca_la_comunitat_habitual(client):
+    cos = client.get("/api/pacientes/P003").json()
+    assert cos["comunitat_habitual"] == "Catalunya"  # la de DIRAYA - Andalucía és la recuperada de fora
+    assert cos["demografia"]["id"] == "P003" and cos["demografia"]["sexe"] == "H"
+
+
 def test_rules_consulta(client):
     cos = client.get("/api/rules").json()
     assert cos["config"]["rules"]["risc_cardiovascular"]["escala_per_defecte"] == "score2"

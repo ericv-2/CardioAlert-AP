@@ -7,6 +7,8 @@ Endpoints:
     GET  /api/pacientes/{id}                                  fitxa: resultat, històric amb origen i sèries renals
     GET  /api/export/excel                                    descàrrega del cupo complet en .xlsx
     GET  /api/rules, POST /api/rules                          consulta i ajust dels llindars de rules.yaml
+    GET  /cds-services                                        CDS Hooks: discovery
+    POST /cds-services/cardioalert-patient-view               CDS Hooks: targeta del hook patient-view
 
 L'API no té lògica clínica: tot surt del motor (`engine/`) i de `config/rules.yaml`, que es rellegeix a
 cada petició (un canvi de llindars es veu a l'instant).
@@ -28,6 +30,7 @@ from engine.__main__ import meta_avaluacio
 from engine.export_excel import bytes_cupo
 from engine.risk_engine import ARREL, CONFIG_DEFECTE, NOM_EQUACIO
 
+from . import cds_hooks
 from .rules_store import ErrorValidacio, RulesStore
 
 DADES_LOCALS = ARREL / "data" / "synthetic" / "fhir"
@@ -129,6 +132,9 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             "diagnostics": d.diagnostics,
             "medicacions": d.medicacions,
             "analitiques": d.analitiques,  # històric complet, cada registre amb el seu origen
+            "demografia": d.pacient,
+            # Un origen "Sistema - Comunitat" d'una altra comunitat és un informe recuperat de fora
+            "comunitat_habitual": cds_hooks.comunitat_habitual(d),
             "series": series,
             # Llindars de rules.yaml que la gràfica dibuixa com a línies de referència
             "llindars": {"fge": m.regles["mrc_no_diagnosticada"]["fge_llindar"],
@@ -164,6 +170,30 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             raise HTTPException(422, {"missatge": "Valores no válidos: no se ha guardado nada", "errors": exc.errors}) from None
         config = store.carrega()
         return {**resultat, "config": config, "editables": store.editables(config), "backups": len(store.backups())}
+
+    @app.get("/cds-services")
+    def cds_discovery() -> dict:
+        """CDS Hooks: serveis disponibles."""
+        return {"services": [cds_hooks.SERVEI]}
+
+    @app.post(f"/cds-services/{cds_hooks.SERVEI_ID}")
+    def cds_patient_view(peticio: dict = Body(..., examples=[{
+            "hook": "patient-view", "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
+            "context": {"userId": "Practitioner/demo", "patientId": "P003"}}]),
+            source: Font = "local", scale: Escala | None = None) -> dict:
+        """CDS Hooks `patient-view`: una targeta amb el resum, el motiu, l'origen de la dada i les accions.
+        `source` i `scale` són una extensió pròpia (els mateixos selectors que la resta de l'API)."""
+        if peticio.get("hook") != cds_hooks.HOOK:
+            raise HTTPException(400, f"Este servicio solo atiende el hook '{cds_hooks.HOOK}'")
+        pacient_id = cds_hooks.id_pacient(peticio)
+        if pacient_id is None:
+            raise HTTPException(400, "Falta context.patientId")
+        m, _ = motor(source, scale)
+        try:
+            resultat = m.avalua(pacient_id)
+        except KeyError:
+            raise HTTPException(404, f"Paciente {pacient_id} no encontrado") from None
+        return {"cards": [cds_hooks.targeta(resultat, m.motor["guia"])]}
 
     return app
 
