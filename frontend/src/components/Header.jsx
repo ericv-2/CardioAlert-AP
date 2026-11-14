@@ -62,7 +62,7 @@ export default function Header({ route, source, onSource, scale, onScale, meta, 
             </span>
           </a>
           <nav className="flex items-center gap-1" aria-label="Secciones">
-            <NavLink href="#/" active={route.view !== "parametros"}>
+            <NavLink href="#/" active={route.view === "cupo" || route.view === "paciente"}>
               Cupo
             </NavLink>
             {nav.map((n) => (

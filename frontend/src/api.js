@@ -36,5 +36,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ canvis }),
     }),
+  // CDS Hooks: hook patient-view (source y scale son una extensión propia del servicio)
+  cdsPatientView: (peticion, { source, scale }, signal) =>
+    request(url("/cds-services/cardioalert-patient-view", { source, scale }), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(peticion),
+      signal,
+    }),
   excelUrl: ({ source, scale }) => url("/api/export/excel", { source, scale }),
 };
