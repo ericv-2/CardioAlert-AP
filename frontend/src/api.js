@@ -25,10 +25,12 @@ async function request(input, init) {
   return body;
 }
 
+// `sel` = { source, cohort }: la fuente de datos y la cohorte ("demo" o "realista") elegidas en la cabecera.
 export const api = {
-  cupo: ({ source, scale }, signal) => request(url("/api/cupo", { source, scale }), { signal }),
-  pacient: (id, { source, scale }, signal) =>
-    request(url(`/api/pacientes/${encodeURIComponent(id)}`, { source, scale }), { signal }),
+  cohorts: (signal) => request(url("/api/cohorts"), { signal }),
+  cupo: ({ source, cohort }, signal) => request(url("/api/cupo", { source, cohort }), { signal }),
+  pacient: (id, { source, cohort }, signal) =>
+    request(url(`/api/pacientes/${encodeURIComponent(id)}`, { source, cohort }), { signal }),
   rules: (signal) => request(url("/api/rules"), { signal }),
   saveRules: (canvis) =>
     request(url("/api/rules"), {
@@ -36,13 +38,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ canvis }),
     }),
-  // CDS Hooks: hook patient-view (source y scale son una extensión propia del servicio)
-  cdsPatientView: (peticion, { source, scale }, signal) =>
-    request(url("/cds-services/cardioalert-patient-view", { source, scale }), {
+  // CDS Hooks: hook patient-view (source y cohort son una extensión propia del servicio)
+  cdsPatientView: (peticion, { source, cohort }, signal) =>
+    request(url("/cds-services/cardioalert-patient-view", { source, cohort }), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(peticion),
       signal,
     }),
-  excelUrl: ({ source, scale }) => url("/api/export/excel", { source, scale }),
+  excelUrl: ({ source, cohort }) => url("/api/export/excel", { source, cohort }),
 };

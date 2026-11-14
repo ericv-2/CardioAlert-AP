@@ -104,7 +104,7 @@ function PanelCds({ id, sel }) {
       .then((respuesta) => setEstado({ id, peticion, respuesta, error: null }))
       .catch((e) => e.name !== "AbortError" && setEstado({ id, peticion, respuesta: null, error: e.message }));
     return () => ctrl.abort();
-  }, [id, sel.source, sel.scale]);
+  }, [id, sel.source, sel.cohort]);
 
   const cards = estado.id === id ? estado.respuesta?.cards : null;
   return (
@@ -173,7 +173,7 @@ function Historia({ id, sel }) {
       .then((data) => setEstado({ data, error: null }))
       .catch((e) => e.name !== "AbortError" && setEstado({ data: null, error: e.message }));
     return () => ctrl.abort();
-  }, [id, sel.source, sel.scale, intento]);
+  }, [id, sel.source, sel.cohort, intento]);
 
   const data = estado.data?.demografia.id === id ? estado.data : null;
   // Un "informe" = las determinaciones de una misma fecha y un mismo sistema de origen
@@ -284,6 +284,8 @@ function Historia({ id, sel }) {
   );
 }
 
+const MAX_AGENDA = 150; // con el cupo realista (1.500) la agenda muestra los primeros y se afina con el buscador
+
 export default function EstacionView({ id, cupo, sel }) {
   const [busqueda, setBusqueda] = useState("");
   const pacientes = useMemo(() => {
@@ -327,7 +329,7 @@ export default function EstacionView({ id, cupo, sel }) {
           ) : (
             <ul className="max-h-[70vh] overflow-auto text-sm">
               {pacientes.length === 0 && <li className="p-3 text-slate-500">Ningún paciente coincide.</li>}
-              {pacientes.map((p) => (
+              {pacientes.slice(0, MAX_AGENDA).map((p) => (
                 <li key={p.pacient_id}>
                   <a
                     href={`#/estacion/${encodeURIComponent(p.pacient_id)}`}
@@ -343,6 +345,11 @@ export default function EstacionView({ id, cupo, sel }) {
                   </a>
                 </li>
               ))}
+              {pacientes.length > MAX_AGENDA && (
+                <li className="p-3 text-xs text-slate-500">
+                  Mostrando {MAX_AGENDA} de {num(pacientes.length)} pacientes: use el buscador para encontrar el resto.
+                </li>
+              )}
             </ul>
           )}
         </nav>

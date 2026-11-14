@@ -23,6 +23,9 @@ function parseHash() {
 export default function App() {
   const [route, setRoute] = useState(parseHash);
   const [source, setSource] = useState("local");
+  // La cohorte inicial se puede fijar en la URL: http://localhost:5173/?cohort=realista
+  const [cohort, setCohort] = useState(() => (new URLSearchParams(window.location.search).get("cohort") === "realista" ? "realista" : "demo"));
+  const [cohorts, setCohorts] = useState(null); // cohortes disponibles (GET /api/cohorts)
   const [version, setVersion] = useState(0); // sube al guardar parámetros: fuerza recalcular el cupo
   const [cupo, setCupo] = useState({ data: null, loading: true, error: null });
   const [filtro, setFiltro] = useState("TODOS");
@@ -39,16 +42,37 @@ export default function App() {
 
   useEffect(() => {
     const ctrl = new AbortController();
+    api
+      .cohorts(ctrl.signal)
+      .then((d) => setCohorts(d.cohorts))
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, []);
+
+  // Los pacientes de una cohorte no existen en la otra: al cambiar, se vuelve a la lista y se limpian los filtros.
+  const cambiarCohorte = useCallback((nueva) => {
+    setCohort(nueva);
+    if (nueva === "realista") setSource("local"); // la cohorte realista solo existe en local
+    setFiltro("TODOS");
+    setBusqueda("");
+    setCupo({ data: null, loading: true, error: null });
+    const { view } = parseHash();
+    if (view === "paciente") window.location.hash = "#/";
+    if (view === "estacion") window.location.hash = "#/estacion";
+  }, []);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
     setCupo((c) => ({ ...c, loading: true, error: null }));
     api
-      .cupo({ source }, ctrl.signal)
+      .cupo({ source, cohort }, ctrl.signal)
       .then((data) => setCupo({ data, loading: false, error: null }))
       .catch((e) => e.name !== "AbortError" && setCupo({ data: null, loading: false, error: e.message }));
     return () => ctrl.abort();
-  }, [source, version]);
+  }, [source, cohort, version]);
 
   const recalcular = useCallback(() => setVersion((v) => v + 1), []);
-  const sel = { source }; // la escala la fija rules.yaml: ESC automático + REGICOR de referencia
+  const sel = { source, cohort }; // la escala la fija rules.yaml: ESC automático + REGICOR de referencia
 
   return (
     <div className="min-h-screen">
@@ -56,6 +80,9 @@ export default function App() {
         route={route}
         source={source}
         onSource={setSource}
+        cohort={cohort}
+        onCohort={cambiarCohorte}
+        cohorts={cohorts}
         meta={cupo.data?.meta}
         loading={cupo.loading}
         nav={NAV}

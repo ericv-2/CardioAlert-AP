@@ -1,12 +1,17 @@
-import { Database, HeartPulse, LoaderCircle, TriangleAlert } from "lucide-react";
-import { fecha } from "../format.js";
+import { Database, HeartPulse, LoaderCircle, TriangleAlert, Users } from "lucide-react";
+import { fecha, num } from "../format.js";
 
 const FUENTES = [
   { value: "local", label: "Local (eCAP / DIRAYA Demo)" },
   { value: "remote", label: "Servidor FHIR remoto" },
 ];
 
-function Selector({ id, label, icon: Icon, value, onChange, options }) {
+const COHORTES = [
+  { id: "demo", nom: "Demo", pacients: 100, disponible: true },
+  { id: "realista", nom: "Cupo realista", pacients: 1500, disponible: true },
+];
+
+function Selector({ id, label, icon: Icon, value, onChange, options, disabled = false, title }) {
   return (
     <label htmlFor={id} className="flex flex-col gap-1">
       <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-clinic-100">
@@ -16,11 +21,13 @@ function Selector({ id, label, icon: Icon, value, onChange, options }) {
       <select
         id={id}
         value={value}
+        disabled={disabled}
+        title={title}
         onChange={(e) => onChange(e.target.value)}
-        className="h-9 max-w-[26rem] rounded-md border border-white/30 bg-white px-2.5 text-sm font-medium text-ink shadow-sm"
+        className="h-9 max-w-[26rem] rounded-md border border-white/30 bg-white px-2.5 text-sm font-medium text-ink shadow-sm disabled:cursor-not-allowed disabled:bg-clinic-100 disabled:text-muted"
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
+          <option key={o.value} value={o.value} disabled={o.disabled}>
             {o.label}
           </option>
         ))}
@@ -43,7 +50,13 @@ function NavLink({ href, active, children }) {
   );
 }
 
-export default function Header({ route, source, onSource, meta, loading, extra, nav = [] }) {
+export default function Header({ route, source, onSource, cohort, onCohort, cohorts, meta, loading, extra, nav = [] }) {
+  const opcionesCohorte = (cohorts ?? COHORTES).map((c) => ({
+    value: c.id,
+    label: c.disponible ? `${c.nom} (${num(c.pacients)})` : `${c.nom} (no generada)`,
+    disabled: !c.disponible,
+  }));
+  const soloLocal = cohort === "realista";
   return (
     <header className="sticky top-0 z-30 shadow-sm">
       <div className="bg-clinic-600 text-white">
@@ -68,7 +81,17 @@ export default function Header({ route, source, onSource, meta, loading, extra, 
             ))}
           </nav>
           <div className="ml-auto flex flex-wrap items-end gap-3">
-            <Selector id="sel-fuente" label="Fuente de datos" icon={Database} value={source} onChange={onSource} options={FUENTES} />
+            <Selector id="sel-cohorte" label="Cohorte" icon={Users} value={cohort} onChange={onCohort} options={opcionesCohorte} />
+            <Selector
+              id="sel-fuente"
+              label="Fuente de datos"
+              icon={Database}
+              value={soloLocal ? "local" : source}
+              onChange={onSource}
+              options={FUENTES}
+              disabled={soloLocal}
+              title={soloLocal ? "El cupo realista solo está disponible en local: no se sube al servidor FHIR público" : undefined}
+            />
             {extra}
           </div>
         </div>
@@ -78,6 +101,9 @@ export default function Header({ route, source, onSource, meta, loading, extra, 
           <span className="rounded bg-clinic-100 px-1.5 py-0.5 font-semibold text-clinic-800">Datos sintéticos</span>
           {meta ? (
             <>
+              <span>
+                Cohorte: <strong className="font-semibold text-ink">{meta.cohort_etiqueta}</strong>
+              </span>
               <span>
                 Fuente activa: <strong className="font-semibold text-ink">{meta.font_etiqueta}</strong>
               </span>
@@ -94,7 +120,7 @@ export default function Header({ route, source, onSource, meta, loading, extra, 
           {loading && (
             <span className="ml-auto flex items-center gap-1.5 text-clinic-700" role="status">
               <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-              {source === "remote" ? "Consultando el servidor FHIR remoto…" : "Calculando el cupo…"}
+              {source === "remote" && !soloLocal ? "Consultando el servidor FHIR remoto…" : "Calculando el cupo…"}
             </span>
           )}
         </div>

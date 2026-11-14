@@ -168,3 +168,75 @@ def test_punts_i_pacients_d_avui_editables(client):
     assert despres["kpis"]["grups"] == abans["kpis"]["grups"]
     punts = lambda cos: {p["pacient_id"]: p["puntuacio_prioritat"] for p in cos["pacients"]}  # noqa: E731
     assert punts(despres)["P005"] == punts(abans)["P005"] + 25
+
+
+# --- Cohorts i resultats en memòria ---------------------------------------------------------
+
+def test_cohorts_disponibles(client):
+    cohorts = {c["id"]: c for c in client.get("/api/cohorts").json()["cohorts"]}
+    assert (cohorts["demo"]["pacients"], cohorts["demo"]["disponible"]) == (100, True)
+    assert (cohorts["realista"]["pacients"], cohorts["realista"]["disponible"]) == (1500, True)
+    assert cohorts["realista"]["fonts"] == ["local"]  # la cohort realista no es puja al servidor FHIR públic
+    assert client.get("/api/cupo", params={"cohort": "inventada"}).status_code == 422
+
+
+def test_cohort_realista_i_fitxa(client):
+    cos = client.get("/api/cupo", params={"cohort": "realista"}).json()
+    assert (cos["meta"]["cohort"], cos["meta"]["cohort_etiqueta"]) == ("realista", "Cupo realista (1.500)")
+    assert len(cos["pacients"]) == cos["kpis"]["total"] == 1500
+    k = cos["kpis"]
+    assert sum(k["categories"].values()) + k["sense_categoria"] == 1500
+    assert k["menors_edat_minima"] > 300 and k["falten_dades"] > 20 and k["mrc_no_diagnosticada"] > 50
+    ordre = [(p["grup_ordre"], -p["puntuacio_prioritat"]) for p in cos["pacients"]]
+    assert ordre == sorted(ordre)
+    assert cos["pacients"][0]["pacient_id"].startswith("R")
+    # La demo segueix sent la cohort per defecte i no es barreja amb la realista
+    assert client.get("/api/cupo").json()["meta"]["cohort_etiqueta"] == "Demo (100)"
+    primer = cos["pacients"][0]["pacient_id"]
+    fitxa = client.get(f"/api/pacientes/{primer}", params={"cohort": "realista"}).json()
+    assert fitxa["pacient"]["pacient_id"] == primer and fitxa["pacient"]["nota_clinica_auto"].startswith("[CardioAlert AP")
+    assert fitxa["analitiques"] and fitxa["series"]["fge"]
+    assert client.get("/api/pacientes/P003", params={"cohort": "realista"}).status_code == 404
+    assert client.get(f"/api/pacientes/{primer}").status_code == 404  # no és a la demo
+    card = client.post("/cds-services/cardioalert-patient-view", params={"cohort": "realista"},
+                       json={"hook": "patient-view", "hookInstance": "x", "context": {"patientId": primer}}).json()["cards"][0]
+    assert card["indicator"] == "critical"  # el primer de la llista té una alerta urgent
+    excel = client.get("/api/export/excel", params={"cohort": "realista"})
+    assert excel.status_code == 200 and len(excel.content) > 200_000
+
+
+def test_el_cupo_es_calcula_un_sol_cop_i_es_guarda_en_memoria(client, monkeypatch):
+    from engine import RiskEngine
+
+    crides = []
+    original = RiskEngine.avalua_cupo
+    monkeypatch.setattr(RiskEngine, "avalua_cupo", lambda self: crides.append(1) or original(self))
+    primera = client.get("/api/cupo", params={"cohort": "realista"}).json()
+    assert primera["meta"]["en_memoria"] is False and primera["meta"]["segons_calcul"] > 0
+    for _ in range(3):
+        cos = client.get("/api/cupo", params={"cohort": "realista"}).json()
+        assert cos["meta"]["en_memoria"] is True and cos["pacients"] == primera["pacients"]
+    client.get("/api/pacientes/R0001", params={"cohort": "realista"})
+    client.get("/api/export/excel", params={"cohort": "realista"})
+    assert len(crides) == 1  # fitxa, Excel i llista surten del mateix càlcul
+    # Un canvi a rules.yaml invalida el que hi ha guardat (el desament ja avalua la demo per validar-lo)
+    crides.clear()
+    assert client.post("/api/rules", json={"canvis": {"motor.prioritat.pacients_avui": 7}}).status_code == 200
+    crides.clear()
+    cos = client.get("/api/cupo", params={"cohort": "realista"}).json()
+    assert cos["meta"]["en_memoria"] is False and cos["meta"]["pacients_avui"] == 7 and len(crides) == 1
+
+
+def test_cohort_realista_nomes_en_local(client):
+    cos = client.get("/api/cupo", params={"cohort": "realista", "source": "remote"}).json()
+    assert (cos["meta"]["cohort"], cos["meta"]["font_usada"]) == ("realista", "local")
+    assert "solo está disponible en local" in cos["meta"]["avis"] and len(cos["pacients"]) == 1500
+
+
+def test_cohort_realista_sense_generar_torna_a_la_demo(rules, tmp_path):
+    client = TestClient(create_app(rules_path=rules, dades_realista=tmp_path / "no_hi_es"))
+    cohorts = {c["id"]: c for c in client.get("/api/cohorts").json()["cohorts"]}
+    assert cohorts["realista"]["disponible"] is False
+    cos = client.get("/api/cupo", params={"cohort": "realista"}).json()
+    assert cos["meta"]["cohort"] == "demo" and "generate_patients.py --perfil realista" in cos["meta"]["avis"]
+    assert len(cos["pacients"]) == 100

@@ -1,6 +1,13 @@
 // Formato de números y fechas en castellano.
-export const num = (v, decimals = 0) =>
-  v == null ? "—" : Number(v).toLocaleString("es-ES", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+// El separador de miles se pone siempre (1.500): por defecto, "es-ES" no agrupa los números de 4 cifras.
+export const num = (v, decimals = 0) => {
+  if (v == null) return "—";
+  const [entero, decimal] = Number(v)
+    .toLocaleString("es-ES", { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: false })
+    .split(",");
+  const agrupado = entero.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return decimal == null ? agrupado : `${agrupado},${decimal}`;
+};
 
 export const pct = (v) => (v == null ? "—" : `${num(v, 1)}%`);
 
