@@ -481,6 +481,8 @@ def test_menor_de_40_nomes_regles_renals_i_proves_pendents(motor):
     r45 = motor.avalua_dades(_pacient(FGE_REDUIT, dxs=["K86"], edat=45, meds=[("Ácido acetilsalicílico", "AAS", "2020-01-01")],
                                       extres=LIPIDS + [("ntprobnp", 900, "2026-09-10")]))
     assert {"possible_ic", "aas_prevencio_primaria"} <= r45.regles_actives() and r45.grup_ordre == 1
+    # El resum l'encapçala l'alerta urgent, encara que una altra alerta sumi els mateixos punts o més
+    assert r45.alerta_principal == "possible_ic" and r45.resum.startswith("Posible insuficiencia cardíaca")
 
 
 @pytest.mark.parametrize("extres, dxs, accions", [

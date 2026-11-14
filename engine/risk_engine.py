@@ -148,6 +148,7 @@ class ResultatPacient:
     regicor_referencia: float | None = None  # % REGICOR, només com a referència (mode totes_dues)
     nota_calibracio: str | None = None  # avís de calibració amb el valor de REGICOR
     alertes_actives: list[Alerta] = field(default_factory=list)
+    alerta_principal: str | None = None  # regla de l'alerta que encapçala el resum (una d'urgent, si n'hi ha)
     accions_recomanades: list[Accio] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)  # notes informatives (anti-inèrcia, dades que falten)
     ben_tractat: bool = False  # control positiu: tractament i objectius correctes i cap alerta
@@ -336,6 +337,9 @@ class RiskEngine:
             fonts_dades=sorted({a.origen for a in d.analitiques if a.origen}),
             dades_creuades=len({a.origen for a in d.analitiques if a.origen and " - " in a.origen}) > 1,
         )
+        if s.alertes:  # primer les urgents i, dins de cada tipus, la de més punts (en empat, la primera)
+            urgents = set(prioritat.get("alertes_urgents", []))
+            res.alerta_principal = max(s.alertes, key=lambda a: (a.regla in urgents, a.pes)).regla
         res.resum = self._resum(res)
         res.nota_clinica_auto = self._nota_clinica(d, f, res)
         res.volant_auto = self._volant(f, res)
@@ -798,7 +802,7 @@ class RiskEngine:
     @staticmethod
     def _resum(res: ResultatPacient) -> str:
         if res.alertes_actives:
-            principal = max(res.alertes_actives, key=lambda a: a.pes)  # en empat, la primera
+            principal = next(a for a in res.alertes_actives if a.regla == res.alerta_principal)
             accio = f" → {res.accions_recomanades[0].text}" if res.accions_recomanades else ""
             mes = f" (+{len(res.alertes_actives) - 1} alertas)" if len(res.alertes_actives) > 1 else ""
             return f"{principal.titol}: {principal.motiu}{accio}{mes}"

@@ -27,6 +27,7 @@ PROVES: dict[str, Prova] = {
     "ntprobnp": Prova("33762-6", "NT-proBNP", "pg/mL", "pg/mL", "laboratory"),
     "pas": Prova("8480-6", "Presión arterial sistólica", "mmHg", "mm[Hg]", "vital-signs"),
     "pad": Prova("8462-4", "Presión arterial diastólica", "mmHg", "mm[Hg]", "vital-signs"),
+    "imc": Prova("39156-5", "Índice de masa corporal", "kg/m²", "kg/m2", "vital-signs"),  # només a la cohort realista
 }
 LOINC = {clau: p.loinc for clau, p in PROVES.items()}
 PROVA_PER_LOINC = {p.loinc: p for p in PROVES.values()}

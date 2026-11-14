@@ -1,0 +1,85 @@
+# Cohort "realista": paràmetres del generador (scripts/generate_patients.py --perfil realista).
+# Fonts i comparació amb les prevalences obtingudes: docs/cohort_realista.md.
+# TOT PENDENT DE VALIDAR PEL METGE. Les línies marcades amb "SUPÒSIT" no surten de cap dels dos estudis.
+
+llavor: 2026
+n_pacients: 1500                      # mida del cupo (configurable; també amb --n)
+
+# Població adulta (>= 18 anys) d'un cupo d'atenció primària. "pes" = % d'adults de cada grup;
+# "dones" = % de dones del grup. SUPÒSIT: aproximació de l'estructura d'edat actual de la població
+# espanyola (padró de l'INE); no surt de REGICOR ni d'ENRICA.
+edats:
+  - {min: 18, max: 24, pes: 8.5, dones: 49}
+  - {min: 25, max: 34, pes: 13.5, dones: 50}
+  - {min: 35, max: 44, pes: 16.5, dones: 50}
+  - {min: 45, max: 54, pes: 19.5, dones: 50}
+  - {min: 55, max: 64, pes: 17.0, dones: 51}
+  - {min: 65, max: 74, pes: 12.5, dones: 53}
+  - {min: 75, max: 84, pes: 8.5, dones: 57}
+  - {min: 85, max: 97, pes: 4.0, dones: 66}
+
+# Factors de risc: prevalença (%) per grup d'edat. Els grups 35-44 i 45-54 estan triats perquè el conjunt
+# 35-54 doni la xifra de la taula 1 de REGICOR; la resta, perquè el total s'acosti a les xifres globals.
+factors:
+  bandes: [[18, 34], [35, 44], [45, 54], [55, 64], [65, 74], [75, 120]]
+  dm2: {prevalenca: [1.0, 3.5, 10.7, 19.0, 28.0, 34.0], rao_home_dona: 1.3}
+  hta: {prevalenca: [3.0, 12.0, 29.0, 58.0, 78.0, 90.0], rao_home_dona: 1.1}
+  dislipemia: {prevalenca: [12.0, 24.0, 38.8, 62.0, 72.0, 74.0], rao_home_dona: 1.0}
+  fumador: {prevalenca: [27.0, 33.0, 31.7, 24.0, 13.0, 6.0], rao_home_dona: 1.3}
+  # SUPÒSIT: les raons home/dona i la correlació entre factors (perquè s'acumulin en els mateixos pacients)
+  correlacio: 0.55                    # 0 = factors independents; 1 = sempre en els mateixos pacients
+  correlacio_tabac: 0.15
+
+# Xifres de referència amb què es compara el resultat (docs/cohort_realista.md i tests/test_cohort_realista.py)
+objectius:
+  regicor_35_54: {dm2: 7.4, hta: 21.2, dislipemia: 32.0, fumador: 32.3}       # taula 1, enquesta 2005
+  regicor_global: {dm2: 14.0, hta: 40.0, dislipemia: 43.0, fumador: 24.0, imc: 27.2}
+  # Valors mitjans dels pacients de 35-54 anys sense patologia (taula 1, enquesta 2018)
+  sans_35_54: {ldl: 130, hdl: 55, colesterol_total: 202, glucosa: 93, pas: 110, pad: 74, imc: 25.8}
+  enrica:
+    global: 15.1
+    per_edat: [{min: 18, max: 44, pct: 4.8}, {min: 45, max: 64, pct: 17.4}, {min: 65, max: 120, pct: 37.3}]
+    homes: 23.1
+    dones: 7.3
+    factors_0_1: 4.5                  # MRC amb 0-1 factors de risc
+    factors_molts: 52.3               # MRC amb 8-10 factors de risc (a l'estudi)
+
+# Malaltia renal crònica (ENRICA). Es genera amb les taxes per edat; el sexe hi entra amb la raó
+# homes/dones de l'estudi (23,1 / 7,3). El total depèn de l'estructura d'edat de la cohort.
+mrc:
+  rao_home_dona: 3.16
+  proporcio_sense_diagnostic: 0.667   # part de les MRC sense diagnòstic registrat (configurable; per defecte 2/3)
+  # SUPÒSITS (no surten d'ENRICA): pes dels factors acumulats, tipus de MRC i estadis
+  pes_factors: 0.45                   # com més factors de risc, més probable la MRC dins del seu grup d'edat i sexe
+  prob_per_filtrat: [{edat_max: 44, p: 0.25}, {edat_max: 64, p: 0.55}, {edat_max: 120, p: 0.80}]   # la resta, per albuminúria
+  prob_filtrat_amb_albuminuria: 0.30
+  estadis: {G3a: 0.68, G3b: 0.23, G4: 0.08, G5: 0.01}
+  prob_albuminuria_a3: 0.15
+  prob_descens_rapid: 0.10
+
+# Insuficiència cardíaca. SUPÒSIT: tot el bloc (prevalença i repartiment per edat); el metge el validarà.
+ic:
+  prevalenca_global: 2.0              # % (configurable; també amb --prevalenca-ic)
+  pes_per_edat: [{edat_max: 44, pes: 0.05}, {edat_max: 64, pes: 0.4}, {edat_max: 74, pes: 2.0}, {edat_max: 120, pes: 5.0}]
+  proporcio_sense_diagnostic: 0.25
+
+# Seguiment i tractament. SUPÒSITS de l'equip tècnic (cap dels dos estudis en dona xifres).
+seguiment:
+  sense_cap_analitica: [{edat_max: 39, p: 0.35}, {edat_max: 49, p: 0.20}, {edat_max: 64, p: 0.10}, {edat_max: 120, p: 0.04}]   # sans sense cap visita en 4 anys
+  nomes_pressio: 0.06                 # sans de >= 40 anys amb pressió registrada però sense analítica
+  cronics_amb_analitica_antiga: 0.20  # crònics amb l'última analítica de fa més de 12 mesos
+  uacr:                               # [anual, antic (> 12 mesos), mai]
+    dm2: [0.60, 0.20, 0.20]
+    hta: [0.35, 0.20, 0.45]
+    mrc_diagnosticada: [0.80, 0.15, 0.05]
+    altres_alguna_vegada: 0.05
+  ntprobnp_en_cronics_60: 0.06
+  altra_comunitat: 0.03               # pacients amb una analítica feta en una altra comunitat autònoma
+  caiguda_aguda: 0.004                # pacients amb una caiguda aguda del FGe a l'última analítica (possible FRA)
+tractament:
+  dm2: {metformina: 0.80, isglt2: 0.22, isglt2_amb_mrc_o_ic: 0.35, aglp1: 0.10, insulina: 0.12}
+  hta: {sraa: 0.68, tiazida: 0.25, antagonista_calci: 0.22, sense_tractament: 0.10}
+  dislipemia: {estatina: 0.55}
+  mrc_diagnosticada: {sraa: 0.70, isglt2: 0.20, finerenona_amb_dm2: 0.05}
+  ic: {sraa: 0.85, isglt2: 0.45}
+  aas_prevencio_primaria: 0.05        # diabètics o hipertensos de >= 60 anys amb AAS sense MCV

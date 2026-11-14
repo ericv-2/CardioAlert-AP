@@ -32,7 +32,7 @@ function Motivo({ p }) {
       </span>
     );
   }
-  const principal = alertas.reduce((a, b) => (b.pes > a.pes ? b : a));
+  const principal = alertas.find((a) => a.regla === p.alerta_principal) ?? alertas[0];
   const accion = p.accions_recomanades[0]?.text;
   return (
     <div className="text-sm" title={p.resum}>
@@ -78,7 +78,7 @@ function Hoy({ pacientes }) {
       </div>
       <ol className="grid gap-x-6 sm:grid-cols-2">
         {pacientes.map((p, i) => {
-          const alerta = p.alertes_actives.reduce((a, b) => (a && a.pes >= b.pes ? a : b), null);
+          const alerta = p.alertes_actives.find((a) => a.regla === p.alerta_principal);
           return (
             <li key={p.pacient_id} className="border-b border-line last:border-b-0">
               <a href={`#/paciente/${p.pacient_id}`} className="flex items-start gap-3 px-4 py-2.5 hover:bg-clinic-50">

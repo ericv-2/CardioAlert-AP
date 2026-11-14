@@ -1,11 +1,14 @@
 """Generador de pacients sintètics (seed fixa) en FHIR R4 i CSV.
 
-Ús:  python scripts/generate_patients.py
+Ús:  python scripts/generate_patients.py                                  cohort demo (100 pacients, data/synthetic)
+     python scripts/generate_patients.py --perfil realista --n 1500      cupo realista (data/realista, només local)
 
-Criteris documentats a docs/dades_sintetiques.md (pendents de validar pel metge).
+Criteris documentats a docs/dades_sintetiques.md (demo) i docs/cohort_realista.md (realista), pendents de
+validar pel metge.
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import random
@@ -597,12 +600,14 @@ def bundle_fhir(dades: DadesPacient) -> dict:
     }
 
 
-def escriu_fhir(pacients: list[DadesPacient], carpeta: Path) -> None:
+def escriu_fhir(pacients: list[DadesPacient], carpeta: Path, compacte: bool = False) -> None:
+    """compacte=True: JSON sense sagnat (la cohort realista té 1.500 bundles)."""
     carpeta.mkdir(parents=True, exist_ok=True)
     for vell in carpeta.glob("*.json"):
         vell.unlink()
     for dades in pacients:
-        text = json.dumps(bundle_fhir(dades), ensure_ascii=False, indent=1)
+        text = json.dumps(bundle_fhir(dades), ensure_ascii=False,
+                          **({"separators": (",", ":")} if compacte else {"indent": 1}))
         (carpeta / f"{dades.pacient.id}.json").write_text(text + "\n", encoding="utf-8", newline="\n")
 
 
@@ -647,7 +652,42 @@ def resum(pacients: list[DadesPacient]) -> str:
     return "\n".join(linies)
 
 
-def main() -> None:
+def main_realista(args: argparse.Namespace) -> None:
+    from scripts import cohort_realista as cr  # import tardà: aquell mòdul importa aquest
+
+    cfg = cr.carrega_config()
+    if args.mrc_sense_dx is not None:
+        cfg["mrc"]["proporcio_sense_diagnostic"] = args.mrc_sense_dx
+    if args.prevalenca_ic is not None:
+        cfg["ic"]["prevalenca_global"] = args.prevalenca_ic
+    if args.llavor is not None:
+        cfg["llavor"] = args.llavor
+    pacients, perfils = cr.genera(cfg, args.n)
+    sortida = Path(args.sortida) if args.sortida else cr.SORTIDA
+    escriu_fhir(pacients, sortida / "fhir", compacte=True)
+    escriu_csv(pacients, sortida / "csv")
+    cr.escriu_veritat(perfils, sortida / "veritat.csv")
+    print(cr.resum(cr.llegeix_veritat(sortida / "veritat.csv"), cfg))
+    print(f"Sortida: {sortida} (fhir, csv i veritat.csv). NOMÉS LOCAL: no es puja al servidor FHIR públic.")
+
+
+def main(argv: list[str] | None = None) -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    parser = argparse.ArgumentParser(description="Generador de pacients sintètics de CardioAlert AP")
+    parser.add_argument("--perfil", choices=["demo", "realista"], default="demo",
+                        help="demo = 100 pacients amb casos trampa (per defecte); realista = cupo calibrat")
+    parser.add_argument("--n", type=int, help="[realista] mida del cupo (per defecte, la de config/cohort_realista.yaml)")
+    parser.add_argument("--llavor", type=int, help="[realista] llavor (per defecte, la de la config)")
+    parser.add_argument("--mrc-sense-dx", type=float, metavar="PROPORCIO",
+                        help="[realista] part de les MRC sense diagnòstic registrat (0-1; per defecte 2/3)")
+    parser.add_argument("--prevalenca-ic", type=float, metavar="PCT",
+                        help="[realista] prevalença d'insuficiència cardíaca en %% (per defecte, la de la config)")
+    parser.add_argument("--sortida", help="[realista] carpeta de sortida (per defecte data/realista)")
+    args = parser.parse_args(argv)
+    if args.perfil == "realista":
+        main_realista(args)
+        return
     pacients = genera()
     escriu_fhir(pacients, SORTIDA / "fhir")
     escriu_csv(pacients, SORTIDA / "csv")
