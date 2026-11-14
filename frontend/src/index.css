@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* Paleta inspirada en una estación clínica: azul #005A9C sobre blanco, y verde/ámbar/rojo para el semáforo. */
+@theme {
+  --font-sans: "Open Sans", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --color-clinic-50: #f3f7fb;
+  --color-clinic-100: #e3eef7;
+  --color-clinic-200: #c4dbee;
+  --color-clinic-300: #94bde0;
+  --color-clinic-500: #1f78bd;
+  --color-clinic-600: #005a9c;
+  --color-clinic-700: #004b82;
+  --color-clinic-800: #003c69;
+  --color-clinic-900: #062c4a;
+  --color-ink: #1b2733;
+  --color-muted: #5b6b7b;
+  --color-line: #dbe3ea;
+  --color-canvas: #f4f6f9;
+}
+
+html { color-scheme: light; }
+body { margin: 0; background: var(--color-canvas); color: var(--color-ink); font-family: var(--font-sans); }
+:focus-visible { outline: 2px solid var(--color-clinic-500); outline-offset: 2px; }
+.tabular { font-variant-numeric: tabular-nums; }
