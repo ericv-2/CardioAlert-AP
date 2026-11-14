@@ -41,12 +41,13 @@ El sistema debe cruzar automáticamente variables y tendencias, no solo valores 
   
 ---
 
-## Estado actual del repo (actualizado 13/11/2026) — prevalece sobre lo anterior si hay conflicto
+## Estado actual del repo (actualizado 14/11/2026) — prevalece sobre lo anterior si hay conflicto
 
 ### Estructura
 ```
 connectors/   Capa de datos. base.py (interfaz Connector: get_patients, get_patient_data),
-              fhir_connector.py y csv_connector.py. Devuelven siempre el modelo de model/.
+              fhir_connector.py, csv_connector.py y fhir_remote_connector.py (servidor FHIR remoto, solo
+              recursos con nuestra etiqueta). Devuelven siempre el modelo de model/.
 model/        entitats.py (dataclasses Pacient, Analitica [con `origen`], Diagnostic, Medicacio, DadesPacient),
               cataleg.py (LOINC, CIAP-2/CIE-10, grupos ATC), formules.py (CKD-EPI 2009 y 2021).
 config/       rules.yaml: `rules` (las 8 reglas con "enabled", umbrales, "evidencia" y "pes") y `motor`
@@ -54,12 +55,18 @@ config/       rules.yaml: `rules` (las 8 reglas con "enabled", umbrales, "eviden
               Todo pendiente de validar por el médico.
 engine/       Motor de reglas determinista (ver "Motor de reglas" más abajo).
 scripts/      generate_patients.py: generador sintético (seed 42) -> data/synthetic/.
+              upload_to_fhir.py: sube (o borra con --esborra) los 100 bundles al servidor FHIR remoto.
 data/synthetic/  fhir/ (un bundle FHIR R4 por paciente) y csv/ (patients, observations, conditions, medications).
 tests/        test_connectors.py (FHIR == CSV + 8 casos trampa), test_dades_sintetiques.py (coherencia),
-              test_engine.py (fórmulas, 8 casos trampa, controles, cambio de escala, reglas a mano).
+              test_engine.py (fórmulas, casos trampa, selección de escala ESC, CKD Add-on, cortes por edad,
+              REGICOR, volante), test_api.py, test_export_excel.py, test_fhir_remote.py (servidor simulado).
 docs/         dades_sintetiques.md (criterios de generación), decisions.md (decisiones de diseño).
-api/          API — PENDIENTE (vacío).
-frontend/     Interfaz — PENDIENTE (vacío).
+api/          main.py (FastAPI + CORS: /api/cupo, /api/pacientes/{id}, /api/export/excel, /api/rules) y
+              rules_store.py (edición validada de rules.yaml: lista blanca, rangos, copia en config/backups/).
+frontend/     Web React (Vite + Tailwind + Lucide). src/App.jsx (rutas por hash y selectores),
+              src/components/: Header, CupoView (Vista 1), PatientView + RenalChart + NoteModal (Vista 2),
+              RulesView (Vista 3). Sin lógica clínica: todo viene de la API.
+exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no versionado).
 ```
 
 ### Comandos
@@ -68,15 +75,28 @@ frontend/     Interfaz — PENDIENTE (vacío).
 - `pip install -r requirements.txt`
 - `python scripts/generate_patients.py` regenera los datos (determinista; no editar data/synthetic a mano).
 - `python -m pytest` ejecuta los tests.
-- `python -m engine` resume el cupo priorizado; `python -m engine P003` imprime la nota clínica de un paciente.
+- `python -m engine` resume el cupo priorizado; `python -m engine P003` imprime la nota clínica de un paciente;
+  `python -m engine --excel` escribe `exports/cupo_evaluado.xlsx`; `--escala regicor` cambia la calculadora.
+- **Arrancar la demo (dos terminales, desde la raíz del repo):**
+  1. API: `python -m uvicorn api.main:app --port 8000` (documentación interactiva en http://localhost:8000/docs).
+  2. Web: `cd frontend`, `npm install` (solo la primera vez) y `npm run dev` -> http://localhost:5173.
+     La web llama a `/api/...` y Vite lo reenvía al puerto 8000 (`VITE_API_PROXY` para cambiarlo).
+  Requiere Node.js >= 20. `npm run build` genera `frontend/dist/`.
+- Servidor FHIR remoto (https://hapi.fhir.org/baseR4, público): `python scripts/upload_to_fhir.py` sube los
+  100 pacientes sintéticos con `meta.tag` "the-goats-hackathon" (ya subidos el 14/11/2026; es un
+  servidor de pruebas compartido y los datos pueden desaparecer: repetir si la web avisa de que no los encuentra).
+  `--esborra` los elimina. SOLO DATOS SINTÉTICOS.
 
 ### Motor de reglas (`engine/`)
-- `risk_engine.py`: `RiskEngine(connector, config=rules.yaml, data_referencia=None)` con `avalua(id)`,
-  `avalua_cupo()` (ordenado por prioridad) y `avalua_dades(DadesPacient)`. Devuelve `ResultatPacient`:
-  `nivell_risc` (ALT/MITJA/BAIX), `puntuacio_prioritat` (0-100), `categoria_kdigo`, `risc_kdigo`, `estat_renal`,
-  `fge_actual`, `uacr_actual`, `pendent_fge`, `kfre_5a`, `risc_cv`, `alertes_actives` (`Alerta`: regla, motiu,
+- `risk_engine.py`: `RiskEngine(connector, config=rules.yaml, data_referencia=None, escala=None)` con
+  `avalua(id)`, `avalua_cupo()` (ordenado por prioridad), `avalua_dades(DadesPacient)` y `series_renals(d)`.
+  Devuelve `ResultatPacient`: `nivell_risc` (ALT/MITJA/BAIX), `puntuacio_prioritat` (0-100), `categoria_kdigo`,
+  `risc_kdigo`, `estat_renal`, `fge_actual`, `uacr_actual`, `pendent_fge`, `kfre_5a`, `risc_cv`, `escala_usada`,
+  `risc_cv_percentatge`, `categoria_risc_cv`, `rang_referencia_cv`, `alertes_actives` (`Alerta`: regla, motiu,
   evidencia "Clase X - ESC/ERA 2026", pes, fonts), `accions_recomanades` (`Accio` con `nota` anti-inercia),
-  `avisos`, `ben_tractat`, `objectius_pendents`, `resum` (1 línea), `fonts_dades`, `nota_clinica_auto`.
+  `avisos`, `ben_tractat`, `objectius_pendents`, `resum` (1 línea), `fonts_dades`, `dades_creuades`,
+  `nota_clinica_auto` y `volant_auto` (volante; vacío si no hay nada que pedir).
+- `export_excel.py`: libro con hojas Cupo (todas las columnas, textos enteros), Alertas y Resumen.
 - `renal.py`: funciones puras — categorías y matriz KDIGO, cronicidad (>= 2 medidas separadas >= 3 meses),
   pendiente del FGe (regresión lineal), caída aguda (FRA) y KFRE de 4 variables.
 - `escales.py`: registro `ESCALES` (`score2` = SCORE2 / SCORE2-Diabetes / SCORE2-OP, `regicor`) y
@@ -95,9 +115,28 @@ frontend/     Interfaz — PENDIENTE (vacío).
 ### Decisiones tomadas (detalle en docs/decisions.md)
 - **Dataset:** 100 pacientes sintéticos (no ~30 ni `pacientes_cupo.csv`), histórico nov 2022 - nov 2026,
   fecha de referencia fija 13/11/2026. Los 8 casos trampa son P001-P008 (ver docs/dades_sintetiques.md).
-- **Escala de riesgo CV:** SCORE2/SCORE2-Diabetes por defecto, REGICOR configurable
-  (`risc_cardiovascular.escala: score2 | regicor | totes_dues`). Corte de riesgo alto >= 10%.
-  La escala es una pieza intercambiable del motor.
+- **Escala de riesgo CV:** `risc_cardiovascular.escala_per_defecte: score2 | regicor | totes_dues`.
+  `score2` es el modo ESC automático: DM2 de 40-69 años -> SCORE2-Diabetes; >= 70 años -> SCORE2-OP;
+  < 70 sin diabetes -> SCORE2; + CKD Add-on si hay afectación renal (último FGe < 60 o UACR >= 30) y no es
+  una caída aguda. SCORE2-Diabetes NO lleva Add-on por defecto (ya incluye el FGe; `ckd_addon.models`),
+  pendiente de validar por el médico. REGICOR se elige en caliente (`escala="regicor"`, selector de la web).
+- **Cortes por edad (ESC), en `talls_per_edat`:** < 50 años 2,5% / 7,5%; 50-69 años 5% / 10%; >= 70 años
+  7,5% / 15% (alto / muy alto). REGICOR: `talls_regicor` 10% / 15% (pendiente de validar).
+  Con estos cortes el cupo queda en 58 ALT / 1 MITJA / 41 BAIX (65 pacientes con RCV alto o muy alto y
+  55 alertas de RCV infratratado, cada una con peso 30 = umbral de ALT). Pendiente de decidir con el médico
+  si "riesgo alto" debe pesar menos que "muy alto"; el peso es editable desde la Vista 3.
+- **Clases de evidencia:** el código no tiene ninguna etiqueta "Clase / Nivel" propia; solo cita el campo
+  `evidencia` de `rules.yaml` (si falta, cita únicamente la guía).
+- **Datos cruzados entre comunidades:** `dades_creuades` es verdadero si el paciente tiene analíticas de más
+  de un origen con formato "Sistema - Comunidad" (p. ej. "eCAP - Catalunya" + "DIRAYA - Andalucía").
+- **API y rules.yaml:** `POST /api/rules` solo acepta los parámetros de `api/rules_store.py::EDITABLES`,
+  valida rangos y coherencia, prueba el motor con la config nueva y guarda copia en `config/backups/`
+  (no versionada) antes de escribir. La API relee `rules.yaml` en cada petición.
+- **Fuente remota:** la API descarga el servidor FHIR una sola vez y lo guarda en memoria; si falla, tarda
+  más de 60 s o no tiene nuestros pacientes, vuelve a los datos locales con un aviso visible en la web y no
+  reintenta hasta pasados 60 s.
+- **Gráfica de la ficha:** dos paneles con el mismo eje de tiempo (FGe y UACR), nunca dos escalas en un
+  mismo panel; el color y la forma de cada punto indican el sistema de origen.
 - **FGe:** el motor usa **CKD-EPI 2009 sin factor racial** (configurable en `motor.equacio_fge`). El FGe
   guardado en los datos sintéticos sigue siendo el "informado por el laboratorio" con CKD-EPI 2021; el motor
   lo ignora y recalcula (p. ej. Pilar López: 52 informado -> 49 con la 2009).

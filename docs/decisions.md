@@ -98,3 +98,30 @@ calcular l'edat.
 `Analitica.origen` (opcional) indica d'on ve cada registre: columna `origen` al CSV i
 `Observation.performer.display` a FHIR. Quan una alerta es basa en dades de més d'un sistema, el motor
 ho diu al motiu ("dato cruzado entre DIRAYA - Andalucía y eCAP - Catalunya").
+
+## 8. API, web i edició de paràmetres (14/11/2026)
+
+- **L'API no té lògica clínica.** `api/main.py` només crida el motor i serialitza; rellegeix `rules.yaml`
+  a cada petició, de manera que un canvi de llindars es veu a l'instant. La web tampoc calcula res: fins i
+  tot els llindars que dibuixa la gràfica arriben de l'API.
+- **Edició de `rules.yaml` amb llista blanca.** `POST /api/rules` només accepta els paràmetres de
+  `api/rules_store.py::EDITABLES` (amb rang i tipus). Abans d'escriure: validació, coherència (tall "alt" <
+  tall "molt alt", nivell MITJA < nivell ALT), avaluació de tot el cupo amb la configuració nova i còpia de
+  seguretat a `config/backups/`. S'escriu amb ruamel.yaml per conservar els comentaris del fitxer.
+- **Volant.** `volant_auto` surt de les accions recomanades que impliquen una petició (analítiques,
+  interconsulta a Nefrologia, ECG/ecocardiograma). Si no n'hi ha cap, queda buit i la web ho diu.
+- **Acció nova `valorar_sraa`.** Amb els talls per edat apareixia una alerta de risc CV infratractat amb
+  "sin IECA/ARA-II" pendent i cap acció associada; ara proposa "Valorar IECA o ARA-II". Pendent de validar.
+- **Gràfica de la fitxa.** FGe i UACR en dos panells amb el mateix eix de temps (mai dues escales en un
+  panell: l'alineació seria arbitrària). La línia és neutra; el color i la forma del punt indiquen el
+  sistema d'origen, i la dada que ve d'una altra comunitat s'etiqueta sobre la gràfica.
+
+## 9. Servidor FHIR remot
+
+- `https://hapi.fhir.org/baseR4` és públic i compartit: només hi pugem dades sintètiques, etiquetades amb
+  `meta.tag` `urn:cardioalert-ap|the-goats-hackathon` i l'etiqueta de seguretat HTEST. Els ids porten
+  el prefix `thegoats-` i es pugen amb PUT (tornar a executar l'script actualitza, no duplica).
+- El connector remot només demana recursos amb la nostra etiqueta, descarrega un sol cop (4 cerques
+  paginades) i ho desa en memòria. Un test comprova que el cupo avaluat és idèntic al local.
+- Si el servidor falla, tarda més de 60 s o no té els pacients, l'API torna a les dades locals, la web
+  mostra un avís i no es reintenta fins passats 60 s (per no penalitzar cada clic).
