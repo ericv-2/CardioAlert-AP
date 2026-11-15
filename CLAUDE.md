@@ -1,5 +1,8 @@
 # Proyecto: CardioAlert AP (Hackathon Boehringer Ingelheim - Reto 1)
 
+> Documentación para el jurado y guía de ejecución: [README.md](README.md) (en castellano). Si cambia una orden,
+> un puerto, el número de tests o una cifra de resultados, hay que actualizar también el README.
+
 ## Contexto Clínico
 - **Usuario:** Médica de Atención Primaria (Carmen) en el Sistema Nacional de Salud (SNS) español. Consulta con tiempo muy limitado (5-7 min/paciente) y datos fragmentados.
 - **Problema:** Pacientes con analíticas aparentemente "aceptables" esconden alto riesgo cardiovascular (RCV) o síndrome cardiorrenal-metabólico incipiente (diabetes, HTA, albuminuria sin valorar, caída silenciosa del Filtrado Glomerular eGFR, signos tempranos de insuficiencia cardíaca).
