@@ -449,3 +449,79 @@ avaluar les regles: només els últims anys de cada prova que fan servir les reg
 - **Targeta CDS.** El `summary` l'encapçala `alerta_principal` (la urgent, si n'hi ha), com el resum i la
   llista; abans era la primera alerta de la llista i amb `fge_descens` urgent la targeta sortia "critical"
   amb un títol no urgent.
+
+## 17. Política d'actualització: com s'assabenta l'add-on de la informació nova (15/11/2026)
+
+**Problema.** L'add-on no té dades pròpies: quan a l'estació entra una analítica o un pacient nou, se n'ha
+d'assabentar sense que la metgessa hagi d'obrir el pacient ("l'eina vigila per la metgessa").
+
+**Decisió: quatre mecanismes, tots estàndard, de més ample a més fi.**
+
+| Mecanisme | Quan | Què llegeix | Estàndard |
+|---|---|---|---|
+| Exportació del cupo sencer | Cada nit (en producció) i a la demo en obrir l'add-on, amb «Actualizar» o si canvia el `Group` | Tot el cupo | FHIR Bulk Data (`Group/{id}/$export`) |
+| Temps real en obrir un pacient | Cada cop que la metgessa obre la història (targeta) o la fitxa | Aquell pacient | CDS Hooks `patient-view` + `Patient/{id}/$everything` |
+| Recàlcul per esdeveniment | Quan arriba una dada nova a l'estació | Aquell pacient | FHIR Subscriptions (R4 Backport IG) |
+| Finestra de dades per prova | Sempre | Només els anys que fa servir cada regla | Minimització (§15) |
+
+A la realitat, l'esdeveniment també pot arribar del motor d'integració del laboratori (missatges HL7 v2
+ORU^R01) o, a Catalunya, de la plataforma d'esdeveniments de Salut; per a l'add-on és el mateix: "dada nova del
+pacient X" -> recalcular X.
+
+**1. Actualitzar en cada lectura.** La fitxa (`/api/pacientes/{id}`) i la targeta CDS llegeixen el pacient de
+l'estació i ara també en substitueixen el resultat al cupo en memòria (`substitueix` a `api/main.py`): la fitxa i
+la llista «Hoy» sempre coincideixen. Si el resultat no ha canviat, no es toca res (llegir una fitxa no costa
+res al cupo).
+
+**2. Escriptura a l'estació (simulador).** El servidor FHIR del simulador accepta `POST /fhir/Observation` i
+`POST /fhir/Patient`. El que s'hi escriu viu en memòria (els fitxers de `simulador/datos` no es toquen: els
+genera el script i són deterministes; en reiniciar l'estació es perd). La data de l'analítica la posa
+l'estació: és el "hoy" de la simulació (13/11/2026, la data de referència del motor), perquè els càlculs de
+pendents i de caiguda aguda del FGe siguin coherents. Cada escriptura dona `meta.versionId` al recurs i canvia la
+versió del `Group`. A la història hi ha "Registrar analítica" (prova LOINC, valor, unitat i sistema d'origen) i a
+l'agenda, "Alta de paciente".
+
+**3. FHIR Subscriptions (R4 Backport IG, simplificat).**
+- El discovery de CDS Hooks anuncia, a `extension["cardioalert-app"].subscription`, la subscripció que vol
+  l'add-on: tema "Observation nueva de un paciente del cupo", canal `rest-hook`, endpoint `/api/notificaciones`,
+  contingut `id-only`. En instal·lar l'add-on, l'estació crea la `Subscription` al seu servidor FHIR; en
+  desinstal·lar-lo, la borra. Si l'estació s'ha reiniciat (les subscripcions viuen en memòria), la torna a crear
+  en obrir-se.
+- Quan entra una Observation, l'estació fa POST d'un Bundle `history` amb el `SubscriptionStatus` (Parameters:
+  `events-since-subscription-start`, `notification-event` amb `event-number`, `focus` =
+  `Observation/{id}/_history/{versionId}` i `additional-context` = el Patient i el `Group/{id}/_history/{versió}`).
+- L'add-on recalcula NOMÉS aquell pacient (`CuaRecalculs`): espera 1 s (`CARDIOALERT_RETARD_NOTIFICACIONES`) i
+  cada notificació del mateix pacient torna a posar el rellotge, de manera que diverses analítiques seguides
+  donen un sol recàlcul. Si apareix una alerta NOVA, el pacient torna a "Pendiente" i entra a «Hoy» (la regla de
+  §16); si les alertes són les mateixes, l'estat no canvia.
+- Idempotència: la clau és el `focus` amb la versió del recurs; una notificació repetida es registra però no es
+  recalcula.
+- La versió del `Group` que porta la notificació queda "incorporada": la propera lectura del cupo no el torna a
+  exportar. Si es perd un esdeveniment (salt a `event-number`), el cupo es torna a exportar sencer a la petició
+  següent. Un pacient nou no genera notificació (el tema és Observation): canvia el `Group` (`quantity`) i entra
+  a la propera lectura.
+- Seguretat: només s'accepten notificacions de les estacions de `CARDIOALERT_FHIR_PERMITIDOS` (l'URL de la
+  Subscription). Sense OAuth ni handshake (simulació).
+- La interfície de l'add-on fa un poll lleuger de `/api/estados` cada 4 s: si `versio_cupo` ha canviat, torna a
+  demanar el cupo (i la fitxa oberta) sense spinner i mostra "Datos nuevos de la estación clínica". La targeta del
+  simulador es torna a demanar en registrar una analítica o en tornar a obrir el pacient.
+
+**4. Registre d'activitat (AuditEvent).** A més del log de canvis d'estat (§16), cada acció queda a
+`estat_addon/<servidor>/activitat.jsonl` com a recurs FHIR **AuditEvent**: `agent` (qui: el professional del
+context de llançament, que la interfície envia a cada petició com a `launch`, o "CardioAlert AP (automático)";
+a les crides CDS Hooks, el `userId`, i se'n mostra el nom si ja es coneix), `recorded` (quan), `entity` (el
+pacient i el detall), `subtype` + `action` (quina acció) i `source.site` (des de quina estació). Accions:
+consulta de la fitxa, crida CDS Hooks, notificació rebuda, recàlcul, lectura del cupo (Bulk Data), canvi d'estat,
+exportació (Excel del cupo, proves pendents en CSV o Excel) i canvi de paràmetres de rules.yaml. Vista
+"Registro de actividad" (`#/actividad`) amb filtres per pacient, professional i tipus d'acció;
+`/api/actividad?formato=fhir` retorna el Bundle d'AuditEvent.
+
+**Resultats.** Sense dades noves, el motor dona exactament el mateix que abans (els tests de les dues cohorts no
+canvien). Flux provat amb `start_demo.bat`: P005 "Revisado" -> UACR 450 mg/g (DIRAYA - Andalucía) a l'estació ->
+en menys d'1 s torna a "Pendiente", 2n de «Hoy», amb "Criterio de derivación a Nefrología: UACR duplicado
+(17 → 450 mg/g) [dato cruzado entre eCAP - Catalunya y DIRAYA - Andalucía]", i al registre: notificació,
+recàlcul i tornada a "Pendiente"; el cupo no s'ha tornat a exportar.
+
+**Pas futur.** Exportació incremental `Group/{id}/$export?_since=<última exportació>` per al botó «Actualizar» i
+per a la càrrega nocturna (avui el cupo s'exporta sencer); handshake i heartbeat de les subscripcions; OAuth
+(SMART Backend Services) per a les notificacions i per a Bulk Data.

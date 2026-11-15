@@ -108,6 +108,35 @@ El sistema debe cruzar automáticamente variables y tendencias, no solo valores 
   10 / 26 / 24 / 40. Realista: «Hoy» 10, pruebas pendientes 442 pacientes (570 pruebas), grupos
   42 / 216 / 325 / 917.
 
+### Política de actualización: el add-on se entera solo (docs/decisions.md §17)
+- **Cuatro mecanismos:** exportación Bulk Data del cupo entero (cada noche en producción; en la demo, al abrir,
+  con «Actualizar» o si cambia el `Group`), cálculo en tiempo real al abrir un paciente (CDS Hooks + ficha),
+  recálculo por evento cuando llega un dato nuevo (FHIR Subscriptions; en la realidad también HL7 v2 desde el
+  motor de integración del laboratorio o la plataforma de eventos de Salut) y ventana de datos por prueba (§15).
+  Paso futuro: `$export?_since=`.
+- **Cada lectura actualiza el cupo:** la ficha y la tarjeta CDS sustituyen el resultado del paciente en el cupo
+  en memoria (`substitueix` en `api/main.py`; si no cambia nada, no se toca).
+- **Escritura en la estación (simulador, EN MEMORIA, los ficheros no se tocan):** `POST /fhir/Observation`
+  (la fecha la pone la estación: el "hoy" de la simulación, 13/11/2026), `POST /fhir/Patient` (P101…, R1501…),
+  `meta.versionId` del recurso y nueva versión del `Group`. Botones "Registrar analítica" (historia) y "Alta de
+  paciente" (agenda). Reiniciar la estación borra lo escrito.
+- **Subscriptions (R4 Backport, simplificado):** el discovery anuncia `extension["cardioalert-app"].subscription`
+  (tema `http://estacion-simulada.local/SubscriptionTopic/observacion-nueva-cupo`, endpoint
+  `/api/notificaciones`); la estación crea la `Subscription` al instalar el add-on y la borra al desinstalar
+  (`/fhir/Subscription`, en memoria; se vuelve a crear si la estación se reinicia). Notificación: Bundle
+  `history` con SubscriptionStatus, `focus` = `Observation/{id}/_history/{v}` y `additional-context` = Patient y
+  `Group/{id}/_history/{v}`. El add-on recalcula SOLO ese paciente (`CuaRecalculs`, 1 s de espera,
+  `CARDIOALERT_RETARD_NOTIFICACIONES`; varias seguidas = un recálculo), descarta repetidas por el `focus`
+  versionado, da por incorporada la versión del Group (no reexporta) y, si falta un `event-number`, reexporta el
+  cupo en la siguiente lectura. Alerta NUEVA -> "Pendiente" y «Hoy»; misma alerta -> el estado no cambia.
+- **Poll de la interfaz:** `/api/estados` cada 4 s; si cambia `versio_cupo`, vuelve a pedir el cupo y la ficha
+  sin spinner y avisa "Datos nuevos de la estación clínica".
+- **Registro de actividad:** `estat_addon/<servidor>/activitat.jsonl`, un recurso FHIR **AuditEvent** por acción
+  (consulta de ficha, CDS Hooks, notificación, recálculo, lectura del cupo, cambio de estado, exportaciones,
+  cambio de rules.yaml). Quién: el profesional del `launch` (la interfaz lo envía en cada petición) o
+  "CardioAlert AP (automático)". `GET /api/actividad` (filtros `paciente`, `profesional`, `tipo`;
+  `formato=fhir` = Bundle) y vista `#/actividad` "Registro de actividad".
+
 ### Estructura
 ```
 connectors/   Capa de datos. base.py (interfaz Connector: get_patients, get_patient_data),
@@ -131,6 +160,8 @@ simulador/datos/realista/  cohorte realista (1.500 pacientes R0001-R1500, nunca 
               csv/ y veritat.csv (lo que el generador "sabe" de cada paciente). Parámetros en
               config/cohort_realista.yaml.
 tests/        test_estats.py (estados, «Hoy», auditoría, alerta nueva y recálculo), test_proves_pendents.py,
+              test_notificacions.py (escritura en la estación, Subscriptions, idempotencia, agrupación, evento
+              perdido, sustitución al leer y registro AuditEvent; con el servidor Node real del simulador),
               test_finestra.py (minimización), conftest.py (estados en carpeta temporal),
               test_fhir_ehr.py (el add-on lee de la estación: conector fhir_ehr, fhirServer, prefetch, iss,
               Bulk Data, memoria por servidor; con una estación simulada y con el servidor Node real del
@@ -148,24 +179,28 @@ api/          ADD-ON. main.py (FastAPI + CORS: /api/cupo, /api/pacientes/{id}, /
               y log de auditoría por servidor FHIR) y rules_store.py (edición validada
               de rules.yaml: lista blanca, rangos, copia en config/backups/). Endpoints nuevos: /api/estados,
               POST /api/pacientes/{id}/estado, /api/pacientes/{id}/auditoria, /api/auditoria,
-              POST /api/pacientes/{id}/recalcular, /api/pruebas-pendientes y /api/export/pruebas-pendientes.
+              POST /api/pacientes/{id}/recalcular, /api/pruebas-pendientes, /api/export/pruebas-pendientes,
+              POST /api/notificaciones (Subscriptions) y /api/actividad (registro AuditEvent).
 frontend/     ADD-ON: su interfaz (React + Vite + Tailwind + Lucide, puerto 5173). src/App.jsx (rutas por hash),
               src/launch.js (`iss` y contexto de lanzamiento desde una estación clínica), src/api.js (reenvía
               el `iss` a la API), src/components/: Header ("Datos de: …" y botón "Actualizar"; SIN selectores),
               CupoView (Vista 1, con "Hoy" arriba y filtro «Estado»), PatientView + RenalChart + NoteModal +
-              EstadoPanel (Vista 2), PruebasView (#/pruebas), RulesView (Vista 3). Sin lógica clínica: todo viene
+              EstadoPanel (Vista 2), PruebasView (#/pruebas), ActividadView (#/actividad, registro de
+              actividad), RulesView (Vista 3). Sin lógica clínica: todo viene
               de la API. Ya NO contiene la estación.
 simulador/    SIMULADOR: estación clínica simulada (React + Vite + Tailwind, puerto 5174), aplicación aparte con
-              su propio package.json. datos/ (las dos cohortes). servidor-fhir.js (servidor FHIR R4 de solo
-              lectura, sin dependencias: plugin de Vite en /fhir y también `node servidor-fhir.js --port N`;
+              su propio package.json. datos/ (las dos cohortes). servidor-fhir.js (servidor FHIR R4 sin
+              dependencias, con escritura en memoria de Observation, Patient y Subscription: plugin de Vite en /fhir y también `node servidor-fhir.js --port N`;
               Patient, $everything, Group del cupo activo, $export Bulk Data y /estacion/cupo),
               src/historia.js (lee ese FHIR y cambia el cupo activo), src/integracion.js (instalación en
               localStorage, discovery, hook patient-view con fhirServer, lanzamiento con iss e intent),
               src/components/: Agenda, Historia, CupoCentro (Configuración → Cupo / centro), Integraciones
-              (Configuración → Integraciones), PanelCds, ModalAddon (iframe con el add-on).
+              (Configuración → Integraciones, crea y borra la Subscription), PanelCds, ModalAddon (iframe con el
+              add-on), Formularios ("Registrar analítica" y "Alta de paciente").
 start_addon / start_simulador / start_demo (.bat y .sh)   scripts de arranque (ver Comandos).
 exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no versionado).
-estat_addon/  estados de las alertas y log de auditoría del add-on, por servidor FHIR (no versionado).
+estat_addon/  estados de las alertas, log de auditoría y registro de actividad (activitat.jsonl, AuditEvent)
+              del add-on, por servidor FHIR (no versionado).
 ```
 
 ### Comandos
@@ -176,8 +211,8 @@ estat_addon/  estados de las alertas y log de auditoría del add-on, por servido
 - `python scripts/generate_patients.py --perfil realista --n 1500` regenera la cohorte realista en
   simulador/datos/realista (determinista; opciones `--mrc-sense-dx`, `--prevalenca-ic`, `--llavor`,
   `--sortida`). NO subirla al servidor FHIR público. Tras regenerar, reiniciar la estación (índice en memoria).
-- `python -m pytest` ejecuta los tests (203; `test_fhir_ehr.py` arranca el servidor FHIR del simulador con
-  Node y se salta esa prueba si no hay Node).
+- `python -m pytest` ejecuta los tests (213; `test_fhir_ehr.py` y `test_notificacions.py` arrancan el servidor
+  FHIR del simulador con Node y se saltan esas pruebas si no hay Node).
 - `python -m engine` resume el cupo priorizado; `python -m engine P003` imprime la nota clínica de un paciente;
   `python -m engine --excel` escribe `exports/cupo_evaluado.xlsx`; `--escala regicor` cambia la calculadora.
   Por defecto lee los ficheros de la cohorte demo; con `--ehr [URL]` lee del servidor FHIR de la estación
@@ -309,7 +344,8 @@ estat_addon/  estados de las alertas y log de auditoría del add-on, por servido
   activo. Los informes de una comunidad distinta de la habitual del paciente (la de la mayoría de sus
   analíticas) llevan "Informe recuperado de otra comunidad" (p. ej. el de DIRAYA de P003), con o sin add-on.
 - **Límites actuales:** sin OAuth ni `fhirAuthorization` (simulación); la estación no resuelve el prefetch
-  (envía `fhirServer`); el cupo se exporta entero (sin `_since`); el generador sigue en `scripts/` (escribe
+  (envía `fhirServer`); el cupo se exporta entero (sin `_since`); lo escrito en la estación y las Subscriptions
+  viven en memoria (sin handshake ni heartbeat); el generador sigue en `scripts/` (escribe
   en `simulador/datos`); el servidor FHIR del simulador guarda el índice en memoria.
 - **Fuente remota (`source=remote`, HAPI; ya no está en la web):** la API descarga el servidor FHIR una sola
   vez y lo guarda en memoria; si falla, tarda más de 60 s o no tiene nuestros pacientes, vuelve a los
