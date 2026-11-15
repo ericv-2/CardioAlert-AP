@@ -3,9 +3,11 @@
 # sense tocar codi.
 #
 # ESTAT DE VALIDACIÓ: Recomanacions, llindars i classes d'evidència revisats i validats per David Cebotari
-# (metge, equip The GOATS) el 15/11/2026. Els coeficients de les fórmules (SCORE2, SCORE2-OP, SCORE2-Diabetes,
-# CKD Add-on, CKD-EPI, KFRE, REGICOR) estan transcrits de les publicacions originals citades i verificats amb
-# tests. No canviar cap valor sense validació clínica.
+# (metge, equip The GOATS) el 15/11/2026. No canviar cap valor sense validació clínica.
+# Coeficients de les fórmules: transcrits de les publicacions originals citades (README, «Base clínica»).
+# Tests automàtics: SCORE2 contra l'exemple publicat a l'article (5,9 % home i 4,2 % dona); CKD-EPI 2009 i
+# REGICOR contra casos calculats amb la fórmula publicada; SCORE2-OP, SCORE2-Diabetes, CKD Add-on i KFRE només
+# amb tests propis de coherència, sense exemple publicat (detall a docs/decisions.md).
 #
 # Codis: diagnòstics en CIAP-2, proves en LOINC, fàrmacs per grup (vegeu model/cataleg.py).
 #
@@ -108,7 +110,7 @@ rules:
     reclassificacio_kdigo: true       # amb MRC, KDIGO taronja => risc alt; vermell => molt alt
     diagnostics_ecv: [K74, K75, K76, K89, K90, K91, K92]   # MCV establerta => risc molt alt directe (sense escala)
     diagnostics_hf: []                # codis d'hipercolesterolèmia familiar => risc alt directe (sense escala);
-                                      # el catàleg actual no en té cap: pendent que el metge digui quin codi fa servir
+                                      # el catàleg actual no en té cap. Decisión clínica abierta (siguiente fase): quin codi fer servir
 
   ben_tractat:
     enabled: true

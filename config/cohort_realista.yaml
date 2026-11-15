@@ -1,6 +1,6 @@
 # Cohort "realista": paràmetres del generador (scripts/generate_patients.py --perfil realista).
 # Fonts i comparació amb les prevalences obtingudes: docs/cohort_realista.md.
-# TOT PENDENT DE VALIDAR PEL METGE. Les línies marcades amb "SUPÒSIT" no surten de cap dels dos estudis.
+# Criteris de generació de dades sintètiques: Decisión clínica abierta (siguiente fase). Les línies marcades amb "SUPÒSIT" no surten de cap dels dos estudis.
 
 llavor: 2026
 n_pacients: 1500                      # mida del cupo (configurable; també amb --n)
@@ -57,7 +57,7 @@ mrc:
   prob_albuminuria_a3: 0.15
   prob_descens_rapid: 0.10
 
-# Insuficiència cardíaca. SUPÒSIT: tot el bloc (prevalença i repartiment per edat); el metge el validarà.
+# Insuficiència cardíaca. SUPÒSIT: tot el bloc (prevalença i repartiment per edat); Decisión clínica abierta (siguiente fase).
 ic:
   prevalenca_global: 2.0              # % (configurable; també amb --prevalenca-ic)
   pes_per_edat: [{edat_max: 44, pes: 0.05}, {edat_max: 64, pes: 0.4}, {edat_max: 74, pes: 2.0}, {edat_max: 120, pes: 5.0}]

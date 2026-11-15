@@ -1,6 +1,6 @@
 # Dades sintètiques: criteris de generació
 
-> **Estat: pendent de validar pel metge.** Tots els valors, proporcions i llindars d'aquest
+> **Estat: Decisión clínica abierta (siguiente fase).** Tots els valors, proporcions i llindars d'aquest
 > document són una proposta de l'equip tècnic. Cap dada correspon a un pacient real.
 
 Generador: `scripts/generate_patients.py` (llavor fixa `seed = 42`, resultat reproduïble).

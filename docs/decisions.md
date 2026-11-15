@@ -1,6 +1,6 @@
 # Decisions de disseny
 
-> **Estat de validació.** Recomanacions, llindars i classes d'evidència revisats i validats per David Cebotari (metge, equip The GOATS) el 15/11/2026. Els coeficients de les fórmules (SCORE2, SCORE2-OP, SCORE2-Diabetes, CKD Add-on, CKD-EPI, KFRE, REGICOR) estan transcrits de les publicacions originals citades i verificats amb tests.
+> **Estat de validació.** Recomanacions, llindars i classes d'evidència revisats i validats per David Cebotari (metge, equip The GOATS) el 15/11/2026. Els coeficients de les fórmules estan transcrits de les publicacions originals citades. Tests automàtics: SCORE2 es comprova contra l'exemple publicat a l'article (50 anys, fumador/a, PAS 140 mmHg, colesterol total 5,5 i HDL 1,3 mmol/L, regió de risc baix: 5,9 % en home i 4,2 % en dona); CKD-EPI 2009 i REGICOR, contra casos calculats amb la fórmula publicada; SCORE2-OP, SCORE2-Diabetes, CKD Add-on i KFRE només tenen tests propis de coherència (selecció del model, rang i sentit de l'efecte), sense exemple publicat. SCORE2, SCORE2-OP, SCORE2-Diabetes i CKD Add-on es van contrastar, a més, amb el paquet R RiskScorescvd (fora dels tests automàtics).
 
 ## 1. Escala de risc cardiovascular: SCORE2 per defecte, REGICOR configurable
 
@@ -44,7 +44,7 @@ desapareix. L'escala també es pot triar en calent (`RiskEngine(..., escala="reg
 - **Sortida per pacient:** `escala_usada`, `risc_cv_percentatge`, `categoria_risc_cv` i `rang_referencia_cv`.
 - **Efecte al cupo:** 65 pacients amb risc alt o molt alt (abans 37 alertes amb el tall del 10%) i 55
   alertes de risc CV infratractat. Com que aquesta alerta pesa 30 punts (= llindar del nivell ALT), el
-  cupo queda en 58 ALT / 1 MITJA / 41 BAIX. Pendent de decidir amb el metge si "risc alt" hauria de pesar
+  cupo queda en 58 ALT / 1 MITJA / 41 BAIX. Decisión clínica abierta (siguiente fase): si "risc alt" hauria de pesar
   menys que "risc molt alt" per recuperar un nivell MITJA útil.
 
 ## 2. Capa de dades amb connectors
@@ -91,7 +91,9 @@ calcular l'edat.
   (SCORE2-Diabetes ja inclou el FGe) i, a més, un mínim per KDIGO: taronja = risc alt, vermell = molt alt.
 - **Verificació de coeficients.** SCORE2, SCORE2-OP, SCORE2-Diabetes i CKD Add-on contrastats amb el
   paquet R de codi obert RiskScorescvd (CRAN). Els coeficients de REGICOR i de
-  KFRE estan transcrits de les publicacions originals i verificats amb tests; les classes de recomanació de
+  KFRE estan transcrits de les publicacions originals: REGICOR té un test amb un cas calculat a mà i KFRE,
+  només tests propis de rang i d'ordre (sense exemple publicat). SCORE2 té un test contra l'exemple publicat a
+  l'article (`tests/test_referencies_publicades.py`). Les classes de recomanació de
   `rules.yaml` (camp `evidencia`) les ha validat David Cebotari (metge de l'equip) el 15/11/2026.
 - **Resolt (14/11/2026):** el tall únic del 10% s'ha substituït pels talls per edat de l'ESC (vegeu la
   secció 1).
@@ -145,7 +147,7 @@ ho diu al motiu ("dato cruzado entre DIRAYA - Andalucía y eCAP - Catalunya").
 - **Suggeriments sense `actions`.** Són informatius: el servei no escriu res a la història clínica.
 - **Sempre es retorna targeta**, també per als pacients sense alertes (`info`: "Sin alertas..." o
   "Bien tratado..."), perquè a la demo es vegi el control positiu. En un desplegament real potser convé
-  retornar `cards: []` en aquests casos per no generar fatiga d'alertes. Pendent de decidir amb el metge.
+  retornar `cards: []` en aquests casos per no generar fatiga d'alertes. Decisión clínica abierta (siguiente fase).
 - **Extensió pròpia:** els paràmetres `source` i `scale` a la URL (els mateixos selectors que la resta de
   l'API). `context.patientId` accepta "P003" o "Patient/P003". Errors: 400 si el hook no és `patient-view`
   o falta `patientId`; 404 si el pacient no existeix. No es fa servir `prefetch` ni `fhirServer`.
@@ -243,7 +245,7 @@ Detall, fonts i taula comparativa a `docs/cohort_realista.md`.
   s'assignen per **quota exacta** dins de cada estrat d'edat i sexe, amb una predisposició latent per
   pacient perquè els factors s'acumulin en els mateixos pacients (com a ENRICA).
 - **Taxes per edat abans que el total.** La MRC es genera amb les taxes per edat d'ENRICA; amb una piràmide
-  d'edat actual el total surt 17,5% (ENRICA: 15,1%). Pendent que el metge digui què prefereix fixar.
+  d'edat actual el total surt 17,5% (ENRICA: 15,1%). Decisión clínica abierta (siguiente fase): què es prefereix fixar.
 - **"Veritat" del generador** a `simulador/datos/realista/veritat.csv`: permet saber quantes MRC sense diagnosticar
   hi ha de debò (175) i quantes en detecta el motor (129, sense falsos positius).
 - **Només local.** La cohort realista no es puja al servidor FHIR públic: l'script de pujada només llegeix
@@ -412,7 +414,7 @@ avaluar les regles: només els últims anys de cada prova que fan servir les reg
 - **Coherència.** La finestra de la UACR i de la creatinina cobreix el termini màxim sense prova de
   `uacr_falta` i `creatinina_falta` (12 mesos, editable fins a 60): si no, l'alerta diria "sin ninguna
   determinación" en lloc de "hace N meses". El test ho comprova.
-- **Per validar amb el metge.** Una NT-proBNP de fa 4 anys continua disparant `possible_ic` perquè la regla
+- **Decisión clínica abierta (siguiente fase).** Una NT-proBNP de fa 4 anys continua disparant `possible_ic` perquè la regla
   validada fa servir l'últim valor; clínicament potser caldria una finestra més curta (p. ex. 1-2 anys) i
   demanar-ne una de nova. No s'ha canviat perquè alteraria resultats ja validats.
 - **Límit.** La finestra s'aplica dins de l'add-on, després de llegir l'estació. El pas següent seria

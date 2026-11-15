@@ -1,6 +1,6 @@
 # Cohort realista: fonts, objectius i resultat
 
-> **Estat: pendent de validar pel metge.** Són **pacients sintètics**: cap dada correspon a una persona
+> **Estat: Decisión clínica abierta (siguiente fase).** Són **pacients sintètics**: cap dada correspon a una persona
 > real. Les xifres epidemiològiques d'aquest document són les que l'equip ha facilitat a partir dels dos
 > articles citats; **no s'han tornat a contrastar amb les taules originals** i cal fer-ho abans de
 > presentar-les. Tot el que no surt d'aquests articles està marcat com a **supòsit**.

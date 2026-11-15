@@ -12,7 +12,9 @@ risc SCORE2/SCORE2-OP segons el FGe i l'UACR observats respecte dels esperats pe
 
 Verificació: els coeficients de SCORE2, SCORE2-OP, SCORE2-Diabetes i del CKD Add-on s'han contrastat
 amb el paquet R de codi obert RiskScorescvd (CRAN). Els de REGICOR estan transcrits de la publicació
-original i verificats amb tests (vegeu docs/decisions.md).
+original i tenen un test amb un cas calculat a mà. SCORE2 té, a més, un test contra l'exemple publicat a
+l'article (tests/test_referencies_publicades.py); SCORE2-OP, SCORE2-Diabetes i el CKD Add-on, només tests
+propis de coherència (vegeu docs/decisions.md).
 """
 from __future__ import annotations
 

@@ -3,8 +3,8 @@
 Ús:  python scripts/generate_patients.py                                  cohort demo (100 pacients, simulador/datos/demo)
      python scripts/generate_patients.py --perfil realista --n 1500      cupo realista (simulador/datos/realista, només local)
 
-Criteris documentats a docs/dades_sintetiques.md (demo) i docs/cohort_realista.md (realista), pendents de
-validar pel metge.
+Criteris documentats a docs/dades_sintetiques.md (demo) i docs/cohort_realista.md (realista): Decisión clínica
+abierta (siguiente fase).
 """
 from __future__ import annotations
 

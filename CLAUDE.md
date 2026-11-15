@@ -215,7 +215,7 @@ estat_addon/  estados de las alertas, log de auditoría y registro de actividad 
 - `python scripts/generate_patients.py --perfil realista --n 1500` regenera la cohorte realista en
   simulador/datos/realista (determinista; opciones `--mrc-sense-dx`, `--prevalenca-ic`, `--llavor`,
   `--sortida`). NO subirla al servidor FHIR público. Tras regenerar, reiniciar la estación (índice en memoria).
-- `python -m pytest` ejecuta los tests (213; `test_fhir_ehr.py` y `test_notificacions.py` arrancan el servidor
+- `python -m pytest` ejecuta los tests (215 + 1 saltado; `test_fhir_ehr.py` y `test_notificacions.py` arrancan el servidor
   FHIR del simulador con Node y se saltan esas pruebas si no hay Node).
 - `python -m engine` resume el cupo priorizado; `python -m engine P003` imprime la nota clínica de un paciente;
   `python -m engine --excel` escribe `exports/cupo_evaluado.xlsx`; `--escala regicor` cambia la calculadora.
@@ -279,10 +279,15 @@ estat_addon/  estados de las alertas, log de auditoría y registro de actividad 
   solo ordena dentro de cada grupo. La tarjeta CDS y el resumen los encabeza `alerta_principal` (la urgente).
 - Textos de salida (alertas, acciones, nota) en castellano; cero umbrales en el código.
 - **Estado de validación:** recomendaciones, umbrales y clases de evidencia revisados y validados por David
-  Cebotari (médico, equipo The GOATS) el 15/11/2026. Los coeficientes de las fórmulas (SCORE2, SCORE2-OP,
-  SCORE2-Diabetes, CKD Add-on, CKD-EPI, KFRE, REGICOR) están transcritos de las publicaciones originales citadas
-  (README, «Base clínica») y verificados con tests; los de SCORE2/SCORE2-OP/SCORE2-Diabetes/CKD Add-on, además,
-  contrastados con el paquete R RiskScorescvd.
+  Cebotari (médico, equipo The GOATS) el 15/11/2026. Coeficientes transcritos de las publicaciones originales
+  (README, «Base clínica»). Tests: SCORE2 contra el ejemplo publicado (5,9 % hombre / 4,2 % mujer,
+  `tests/test_referencies_publicades.py`); CKD-EPI 2009 y REGICOR contra casos calculados con la fórmula
+  publicada; SCORE2-OP, SCORE2-Diabetes, CKD Add-on y KFRE solo con tests propios de coherencia. El test del
+  ejemplo publicado de SCORE2-Diabetes está saltado (faltan los «valores medios» del artículo). SCORE2 y
+  variantes y CKD Add-on contrastados además con el paquete R RiskScorescvd (fuera de los tests).
+- **Decisiones clínicas abiertas (siguiente fase):** ventana de datos del NT-proBNP, código de
+  hipercolesterolemia familiar, tarjeta CDS en pacientes sin alertas, criterios de generación de los datos
+  sintéticos. En `revision_reglas.xlsx` son las únicas filas no marcadas como «Validado».
 
 ### Decisiones tomadas (detalle en docs/decisions.md)
 - **Dataset:** 100 pacientes sintéticos (no ~30 ni `pacientes_cupo.csv`), histórico nov 2022 - nov 2026,

@@ -101,7 +101,9 @@ Las alertas y acciones renales y terapéuticas citan el marco del enunciado del 
 
 **Umbrales.** Todos están en [`config/rules.yaml`](config/rules.yaml), no en el código. **No deben modificarse sin validación clínica.**
 
-**Validación clínica.** Recomendaciones, umbrales y clases de evidencia (clase ESC/KDIGO/ADA) revisados y validados por David Cebotari (médico, equipo The GOATS) el 15/11/2026. Los coeficientes de las fórmulas (SCORE2, SCORE2-OP, SCORE2-Diabetes, CKD Add-on, CKD-EPI, KFRE, REGICOR) están transcritos de las publicaciones originales citadas y verificados con tests.
+**Validación clínica.** Recomendaciones, umbrales y clases de evidencia (clase ESC/KDIGO/ADA) revisados y validados por David Cebotari (médico, equipo The GOATS) el 15/11/2026. 
+
+**Verificación de las fórmulas.** Los coeficientes de las fórmulas están transcritos de las publicaciones originales citadas. Tests automáticos: SCORE2 se comprueba contra el ejemplo publicado en el artículo (50 años, fumador/a, PAS 140 mmHg, colesterol total 5,5 y HDL 1,3 mmol/L, región de riesgo bajo: 5,9 % en hombre y 4,2 % en mujer); CKD-EPI 2009 y REGICOR, contra casos calculados con la fórmula publicada; SCORE2-OP, SCORE2-Diabetes, CKD Add-on y KFRE solo tienen tests propios de coherencia (selección del modelo, rango y sentido del efecto), sin ejemplo publicado. SCORE2, SCORE2-OP, SCORE2-Diabetes y CKD Add-on se contrastaron, además, con el paquete R RiskScorescvd (fuera de los tests automáticos).
 
 ## 5. Datos
 
@@ -247,7 +249,7 @@ La IA (Claude Code, Gemini) se ha usado únicamente como herramienta de desarrol
 python -m pytest
 ```
 
-213 tests. Dos ficheros (`test_fhir_ehr.py` y `test_notificacions.py`) arrancan el servidor FHIR de la estación con Node y se saltan esas pruebas si no hay Node instalado.
+216 tests (215 pasan y 1 está saltado: el ejemplo publicado de SCORE2-Diabetes, ver limitaciones). `tests/test_referencies_publicades.py` comprueba SCORE2 contra el ejemplo del artículo original. Dos ficheros (`test_fhir_ehr.py` y `test_notificacions.py`) arrancan el servidor FHIR de la estación con Node y se saltan esas pruebas si no hay Node instalado.
 
 ## 12. Estructura de carpetas
 
@@ -274,6 +276,8 @@ start_*       Scripts de arranque (.bat y .sh)
 - **`_since` no implementado.** El cupo se exporta siempre entero.
 - **La carga nocturna es diseño, no código.** En el prototipo el cupo se lee al abrir el add-on, con «Actualizar» o cuando cambia en la estación.
 - **Una sola estación simulada.** No hay conectores con sistemas reales.
+- **Verificación parcial de las fórmulas.** Solo SCORE2 tiene un test contra el ejemplo publicado; el del ejemplo de SCORE2-Diabetes está preparado pero saltado, a falta de transcribir del artículo los valores medios de los factores de riesgo.
+- **Decisiones clínicas abiertas (siguiente fase):** la ventana de datos del NT-proBNP (hoy 4 años; quizá deba ser más corta), el código de hipercolesterolemia familiar (el catálogo no tiene ninguno), si conviene mostrar tarjeta en los pacientes sin alertas y los criterios de generación de los datos sintéticos (incluida la prevalencia global de ERC). Son las únicas filas abiertas de `exports/revision_reglas.xlsx`.
 
 ## 14. Futuro
 
