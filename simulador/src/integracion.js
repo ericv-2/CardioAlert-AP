@@ -94,16 +94,58 @@ export async function descubrir(url, signal) {
   };
 }
 
+// --- FHIR Subscription (R4 Backport IG): avisar al add-on cuando entra una analítica de un paciente del cupo ---
+// El add-on anuncia en el discovery qué suscripción quiere (tema y endpoint); la estación la registra en su
+// propio servidor FHIR al instalarlo y la borra al desinstalarlo.
+const suscripcionPedida = (respuesta) =>
+  respuesta?.services?.map((s) => s.extension?.[EXTENSION_APP]?.subscription).find((s) => s?.topic && s?.endpoint) ?? null;
+
+async function crearSuscripcion(url, pedida) {
+  const endpoint = new URL(pedida.endpoint, `${url}/`).href;
+  const res = await fetch(`${fhirBase()}/Subscription`, {
+    method: "POST",
+    headers: { "Content-Type": "application/fhir+json", Accept: "application/fhir+json" },
+    body: JSON.stringify({
+      resourceType: "Subscription",
+      status: "requested",
+      reason: `${pedida.description ?? "Notificaciones"} (add-on ${url})`,
+      criteria: pedida.topic,
+      channel: { type: "rest-hook", endpoint, payload: pedida.payload ?? "application/fhir+json" },
+    }),
+  });
+  const cuerpo = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(cuerpo?.issue?.[0]?.diagnostics || `la estación no ha podido registrar la suscripción (${res.status})`);
+  return { id: cuerpo.id, endpoint, tema: pedida.topic };
+}
+
 export async function instalar(textoUrl) {
   const url = normalizarUrl(textoUrl);
   const { servicios, app, respuesta } = await descubrir(url);
-  const instalacion = { url, servicios, app, discovery: respuesta, instaladoEn: new Date().toISOString() };
+  const pedida = suscripcionPedida(respuesta);
+  const suscripcion = pedida ? await crearSuscripcion(url, pedida) : null;
+  const instalacion = { url, servicios, app, discovery: respuesta, suscripcion, instaladoEn: new Date().toISOString() };
   guardarInstalacion(instalacion);
   return instalacion;
 }
 
-export function desinstalar() {
+// La suscripción vive en la memoria del servidor de la estación: si se ha reiniciado, se vuelve a registrar.
+export async function asegurarSuscripcion(instalacion) {
+  const pedida = suscripcionPedida(instalacion?.discovery);
+  if (!pedida) return instalacion;
+  if (instalacion.suscripcion?.id) {
+    const res = await fetch(`${fhirBase()}/Subscription/${encodeURIComponent(instalacion.suscripcion.id)}`, { headers: { Accept: "application/fhir+json" } });
+    if (res.ok) return instalacion;
+  }
+  const nueva = { ...instalacion, suscripcion: await crearSuscripcion(instalacion.url, pedida) };
+  guardarInstalacion(nueva);
+  return nueva;
+}
+
+export async function desinstalar(instalacion) {
   guardarInstalacion(null);
+  if (instalacion?.suscripcion?.id) {
+    await fetch(`${fhirBase()}/Subscription/${encodeURIComponent(instalacion.suscripcion.id)}`, { method: "DELETE" }).catch(() => {});
+  }
 }
 
 export const servicioPatientView = (instalacion) => instalacion?.servicios.find((s) => s.hook === HOOK) ?? null;

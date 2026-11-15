@@ -120,7 +120,62 @@ export async function cargarHistoria(id, signal) {
   }
   const comunidadHabitual = [...cuenta.entries()].reduce((mejor, e) => (!mejor || e[1] > mejor[1] ? e : mejor), null)?.[0] ?? null;
 
-  return { paciente: { ...paciente(de("Patient")[0], hoy), fumador }, analiticas, diagnosticos, medicacion, comunidadHabitual };
+  const origenHabitual = analiticas.find((a) => comunidad(a.origen) === comunidadHabitual)?.origen ?? null;
+  return { paciente: { ...paciente(de("Patient")[0], hoy), fumador }, analiticas, diagnosticos, medicacion, comunidadHabitual, origenHabitual, hoy };
+}
+
+// --- Escritura en la historia (servidor FHIR de la estación) ---
+
+// Pruebas que se pueden registrar a mano (LOINC, unidad UCUM). La fecha la pone la estación: "hoy".
+export const PRUEBAS = [
+  { loinc: "9318-7", nombre: "Cociente albúmina/creatinina en orina", unidad: "mg/g", ucum: "mg/g", categoria: "laboratory" },
+  { loinc: "2160-0", nombre: "Creatinina", unidad: "mg/dL", ucum: "mg/dL", categoria: "laboratory" },
+  { loinc: "4548-4", nombre: "Hemoglobina glicada (HbA1c)", unidad: "%", ucum: "%", categoria: "laboratory" },
+  { loinc: "33762-6", nombre: "NT-proBNP", unidad: "pg/mL", ucum: "pg/mL", categoria: "laboratory" },
+  { loinc: "13457-7", nombre: "Colesterol LDL", unidad: "mg/dL", ucum: "mg/dL", categoria: "laboratory" },
+  { loinc: "2093-3", nombre: "Colesterol total", unidad: "mg/dL", ucum: "mg/dL", categoria: "laboratory" },
+  { loinc: "2085-9", nombre: "Colesterol HDL", unidad: "mg/dL", ucum: "mg/dL", categoria: "laboratory" },
+  { loinc: "2823-3", nombre: "Potasio", unidad: "mmol/L", ucum: "mmol/L", categoria: "laboratory" },
+  { loinc: "8480-6", nombre: "Presión arterial sistólica", unidad: "mmHg", ucum: "mm[Hg]", categoria: "vital-signs" },
+  { loinc: "8462-4", nombre: "Presión arterial diastólica", unidad: "mmHg", ucum: "mm[Hg]", categoria: "vital-signs" },
+];
+export const ORIGENES = ["eCAP - Catalunya", "DIRAYA - Andalucía", "SERGAS - Galicia", "Lab. Hospital"];
+
+async function escribir(ruta, recurso) {
+  let res;
+  try {
+    res = await fetch(`${FHIR}${ruta}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/fhir+json", Accept: "application/fhir+json" },
+      body: JSON.stringify(recurso),
+    });
+  } catch {
+    throw new Error("La estación no responde (¿está arrancado el simulador?).");
+  }
+  const cuerpo = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(cuerpo?.issue?.[0]?.diagnostics || `Error ${res.status} del servidor FHIR de la estación`);
+  return cuerpo;
+}
+
+export function registrarAnalitica(pacienteId, { prueba, valor, origen }) {
+  return escribir("/Observation", {
+    resourceType: "Observation",
+    status: "final",
+    category: [{ coding: [{ system: "http://terminology.hl7.org/CodeSystem/observation-category", code: prueba.categoria }] }],
+    code: { coding: [{ system: LOINC, code: prueba.loinc, display: prueba.nombre }], text: prueba.nombre },
+    subject: { reference: `Patient/${pacienteId}` },
+    valueQuantity: { value: Number(valor), unit: prueba.unidad, system: "http://unitsofmeasure.org", code: prueba.ucum },
+    performer: [{ display: origen }],
+  });
+}
+
+export function altaPaciente({ nombre, apellidos, sexo, nacimiento }) {
+  return escribir("/Patient", {
+    resourceType: "Patient",
+    name: [{ use: "official", given: nombre.trim().split(/\s+/), family: apellidos.trim() }],
+    gender: sexo === "H" ? "male" : "female",
+    birthDate: nacimiento,
+  });
 }
 
 export const comunidad = (origen) => (origen?.includes(" - ") ? origen.split(" - ").slice(1).join(" - ") : null);

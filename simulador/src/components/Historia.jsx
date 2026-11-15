@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { CircleAlert, FlaskConical, Globe, LoaderCircle, Pill, RotateCw, Stethoscope, UserRound } from "lucide-react";
+import { CircleAlert, FlaskConical, FlaskRound, Globe, LoaderCircle, Pill, RotateCw, Stethoscope, UserRound } from "lucide-react";
 import { cargarHistoria, comunidad } from "../historia.js";
 import { fecha, num, SEXO } from "../format.js";
+import { RegistrarAnalitica } from "./Formularios.jsx";
 
 // Historia clínica del paciente: lo que la estación sabe por sí misma (su servidor FHIR), con o sin add-on.
 
@@ -18,9 +19,12 @@ function Seccion({ titulo, icono: Icono, cuenta, children }) {
   );
 }
 
-export default function Historia({ id }) {
+export default function Historia({ id, onCambio }) {
   const [estado, setEstado] = useState({ data: null, error: null });
   const [intento, setIntento] = useState(0);
+  const [registrando, setRegistrando] = useState(false);
+  const [registrada, setRegistrada] = useState(null); // última analítica registrada (aviso)
+  useEffect(() => setRegistrada(null), [id]);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -94,7 +98,35 @@ export default function Historia({ id }) {
             </div>
           ))}
         </dl>
+        <button
+          type="button"
+          onClick={() => setRegistrando(true)}
+          className="ml-auto inline-flex items-center gap-2 rounded bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-800"
+        >
+          <FlaskRound className="size-4" aria-hidden="true" />
+          Registrar analítica
+        </button>
       </section>
+      {registrada && (
+        <p className="rounded border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900" role="status">
+          Analítica registrada: {registrada.code.text} {num(registrada.valueQuantity.value)} {registrada.valueQuantity.unit} ({registrada.performer?.[0]?.display},{" "}
+          {fecha(registrada.effectiveDateTime)}). Si hay un add-on instalado, la estación se lo notifica (FHIR Subscription).
+        </p>
+      )}
+      {registrando && (
+        <RegistrarAnalitica
+          paciente={p}
+          hoy={data.hoy}
+          origenHabitual={data.origenHabitual}
+          onCerrar={() => setRegistrando(false)}
+          onRegistrada={(obs) => {
+            setRegistrando(false);
+            setRegistrada(obs);
+            setIntento((n) => n + 1);
+            onCambio?.();
+          }}
+        />
+      )}
 
       <div className="grid gap-3 md:grid-cols-2">
         <Seccion titulo="Diagnósticos" icono={Stethoscope} cuenta={data.diagnosticos.length}>

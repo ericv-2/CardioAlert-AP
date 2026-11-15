@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Building2, CalendarDays, HeartPulse, PlugZap, Settings, Stethoscope, Unplug, UserRound, X } from "lucide-react";
 import { cargarAgenda, cargarCupos } from "./historia.js";
-import { descubrir, desinstalar, leerInstalacion, nombreAddon, PROFESIONAL } from "./integracion.js";
+import { asegurarSuscripcion, descubrir, desinstalar, leerInstalacion, nombreAddon, PROFESIONAL } from "./integracion.js";
+import { AltaPaciente } from "./components/Formularios.jsx";
 import { fecha, num } from "./format.js";
 import Agenda from "./components/Agenda.jsx";
 import CupoCentro from "./components/CupoCentro.jsx";
@@ -82,7 +83,13 @@ export default function App() {
     (signal) => {
       if (!instalacion) return;
       descubrir(instalacion.url, signal)
-        .then(() => informarEstado({ responde: true }))
+        .then(() => {
+          informarEstado({ responde: true });
+          // La suscripción vive en la memoria del servidor de la estación: si se ha reiniciado, se registra otra vez
+          asegurarSuscripcion(instalacion)
+            .then((nueva) => nueva !== instalacion && setInstalacion(nueva))
+            .catch(() => {});
+        })
         .catch((e) => e.name !== "AbortError" && informarEstado({ responde: false, mensaje: e.message }));
     },
     [instalacion, informarEstado],
@@ -96,9 +103,20 @@ export default function App() {
   }, [comprobarAddon]);
 
   const quitarAddon = useCallback(() => {
-    desinstalar();
+    desinstalar(instalacion); // borra también la suscripción FHIR del add-on
     setInstalacion(null);
     setModal(null);
+  }, [instalacion]);
+  // Escritura en la historia: la tarjeta del panel se vuelve a pedir (hook patient-view) y la agenda se relee
+  const [cambios, setCambios] = useState(0);
+  const [alta, setAlta] = useState(false);
+  const historiaCambiada = useCallback(() => setCambios((n) => n + 1), []);
+  const pacienteDadoDeAlta = useCallback((p) => {
+    setAlta(false);
+    cargarAgenda()
+      .then((data) => setAgenda({ data, error: null }))
+      .catch(() => {});
+    window.location.hash = `#/paciente/${encodeURIComponent(p.id)}`;
   }, []);
   const cerrarModal = useCallback(() => setModal(null), []);
   // El botón de la barra de herramientas abre la página principal del add-on (alertas, «Hoy» y cupo);
@@ -227,13 +245,23 @@ export default function App() {
               instalacion && abierto ? "xl:grid-cols-[15rem_minmax(0,1fr)_23rem]" : ""
             }`}
           >
-            <Agenda agenda={agenda} id={abierto} />
+            <div className="space-y-2">
+              <Agenda agenda={agenda} id={abierto} />
+              <button
+                type="button"
+                onClick={() => setAlta(true)}
+                className="inline-flex w-full items-center justify-center gap-2 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+              >
+                Alta de paciente
+              </button>
+              {alta && <AltaPaciente hoy={agenda.data?.fecha} onCerrar={() => setAlta(false)} onAlta={pacienteDadoDeAlta} />}
+            </div>
             {abierto ? (
               <>
-                <Historia id={abierto} />
+                <Historia id={abierto} onCambio={historiaCambiada} />
                 {instalacion && (
                   <div className="lg:col-start-2 xl:sticky xl:top-28 xl:col-start-3 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
-                    <PanelCds id={abierto} instalacion={instalacion} onAbrirAddon={abrirFicha} onEstadoAddon={informarEstado} />
+                    <PanelCds key={`${abierto}-${cambios}`} id={abierto} instalacion={instalacion} onAbrirAddon={abrirFicha} onEstadoAddon={informarEstado} />
                   </div>
                 )}
               </>
