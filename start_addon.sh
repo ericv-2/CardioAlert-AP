@@ -5,11 +5,15 @@ set -e
 cd "$(dirname "$0")"
 
 # --- Python (>= 3.10): el del entorno virtual .venv si existe; si no, el del PATH ---
-if [ -x .venv/bin/python ]; then PY="$PWD/.venv/bin/python"
-elif [ -x .venv/Scripts/python.exe ]; then PY="$PWD/.venv/Scripts/python.exe"
-elif command -v python3 >/dev/null 2>&1; then PY=python3
-else PY=python; fi
-if ! "$PY" -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" 2>/dev/null; then
+# Se prueba cada candidato: en Windows, "python3" puede ser el acceso directo vacío de la Microsoft Store.
+PY=""
+for candidato in "$PWD/.venv/bin/python" "$PWD/.venv/Scripts/python.exe" python3 python; do
+  if "$candidato" -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >/dev/null 2>&1; then
+    PY="$candidato"
+    break
+  fi
+done
+if [ -z "$PY" ]; then
   echo "[ERROR] Hace falta Python 3.10 o superior. Instálelo, o cree un entorno virtual: python3 -m venv .venv" >&2
   exit 1
 fi
