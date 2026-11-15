@@ -154,6 +154,28 @@ motor:
     aglp1: {enabled: true, evidencia: Clase I, uacr_min: 30}            # semaglutida en DM2 + albuminúria
     aas_prevencio_primaria: {enabled: true, evidencia: Clase III, pes: 10, grup: AAS}
 
+  # Minimització de dades (art. 5.1.c RGPD): de cada prova, el motor només fa servir els últims N anys
+  # (comptats des de data_referencia) que necessiten les regles que la fan servir. 0 = el motor no la fa servir
+  # i no la llegeix. Les proves que no són a la llista tampoc es fan servir. Diagnòstics i tractaments no
+  # tenen finestra (són crònics o actius). Detall a docs/decisions.md §15. PENDENT DE VALIDAR PEL METGE.
+  finestra_dades:
+    enabled: true
+    proves:                           # clau del catàleg (model/cataleg.py) -> anys i regles que la necessiten
+      creatinina: {anys: 5, regles: [fge_descens, mrc_no_diagnosticada, possible_fra, derivacio_nefrologia, creatinina_falta, risc_cardiovascular]}
+      uacr: {anys: 5, regles: [mrc_no_diagnosticada, albuminuria_sense_accio, derivacio_nefrologia, uacr_falta, risc_cardiovascular]}
+      pas: {anys: 3, regles: [risc_cardiovascular, ben_tractat]}
+      pad: {anys: 3, regles: [risc_cardiovascular, ben_tractat]}
+      colesterol_total: {anys: 3, regles: [risc_cardiovascular]}
+      hdl: {anys: 3, regles: [risc_cardiovascular]}
+      ldl: {anys: 3, regles: [risc_cardiovascular, ben_tractat]}
+      hba1c: {anys: 2, regles: [risc_cardiovascular, ben_tractat]}
+      potasio: {anys: 3, regles: [finerenona]}
+      ntprobnp: {anys: 4, regles: [possible_ic]}
+      fge: {anys: 0, regles: []}           # FGe informat pel laboratori: el motor el recalcula de la creatinina
+      glucosa: {anys: 0, regles: []}
+      trigliceridos: {anys: 0, regles: []}
+      imc: {anys: 0, regles: []}
+
   prioritat:                          # puntuacio_prioritat = suma dels pesos de les alertes + KDIGO (màx. 100)
     kdigo: {verd: 0, groc: 3, taronja: 8, vermell: 15}
     # Ordre de la llista de treball (NO és una classificació de risc): 1) alertes urgents, 2) risc "Muy alto"

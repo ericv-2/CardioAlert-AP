@@ -18,14 +18,14 @@ sortida són en castellà (com les dades); identificadors i comentaris en catal�
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import yaml
 
 from connectors import Connector
 from model import DadesPacient
-from model.cataleg import CIAP2, LOINC
+from model.cataleg import CIAP2, LOINC, PROVES
 from model.formules import EQUACIONS_FGE, edat_en
 
 from . import renal
@@ -263,6 +263,20 @@ class RiskEngine:
         self.escala: str = escala or self.regles["risc_cardiovascular"]["escala_per_defecte"]
         if self.escala not in MODES_ESCALA:
             raise ValueError(f"Escala de risc desconeguda: {self.escala!r} ({' | '.join(MODES_ESCALA)})")
+        self.finestra = self._finestra()
+
+    def _finestra(self) -> dict[str, date] | None:
+        """LOINC -> data més antiga que el motor fa servir (motor.finestra_dades). None = sense finestra."""
+        cfg = self.motor.get("finestra_dades")
+        if not cfg or not cfg.get("enabled"):
+            return None
+        talls = {}
+        for clau, p in cfg.get("proves", {}).items():
+            if clau not in PROVES:
+                raise ValueError(f"finestra_dades: prova desconeguda {clau!r} (vegeu model/cataleg.py)")
+            anys = p["anys"]
+            talls[PROVES[clau].loinc] = self.avui - timedelta(days=round(anys * 365.25)) if anys > 0 else None
+        return talls
 
     # --- API pública ------------------------------------------------------------------------
 
@@ -274,7 +288,17 @@ class RiskEngine:
         resultats = [self.avalua(p.id) for p in self.connector.get_patients()]
         return sorted(resultats, key=lambda r: (r.grup_ordre, -r.puntuacio_prioritat, r.pacient_id))
 
+    def minimitza(self, d: DadesPacient) -> DadesPacient:
+        """Només les analítiques dins de la finestra de cada prova (minimització, art. 5.1.c RGPD). Les proves
+        sense finestra o amb 0 anys no es fan servir. Diagnòstics i tractaments es mantenen sencers."""
+        if self.finestra is None:
+            return d
+        analitiques = [a for a in d.analitiques
+                       if (tall := self.finestra.get(a.codi_loinc, None)) is not None and tall <= a.data <= self.avui]
+        return DadesPacient(d.pacient, analitiques, list(d.diagnostics), list(d.medicacions))
+
     def avalua_dades(self, d: DadesPacient) -> ResultatPacient:
+        d = self.minimitza(d)
         p = d.pacient
         f = self._fets(d)
         s = _Sortida(self.motor["guia"])
@@ -352,7 +376,7 @@ class RiskEngine:
 
     def series_renals(self, d: DadesPacient) -> dict[str, list[Mesura]]:
         """Evolució del FGe (recalculat amb l'equació configurada) i de l'UACR, amb el sistema d'origen."""
-        f = self._fets(d)
+        f = self._fets(self.minimitza(d))
         return {"fge": f.fge, "uacr": f.uacr}
 
     # --- Fets -------------------------------------------------------------------------------

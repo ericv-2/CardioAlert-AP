@@ -123,7 +123,10 @@ def _meta_motor(m: RiskEngine) -> dict:
             "pacients_avui": m.motor["prioritat"].get("pacients_avui", 10),
             "alertes_urgents": m.motor["prioritat"].get("alertes_urgents", []),
             "grups_ordre": GRUPS_ORDRE,
-            "equacio_fge": NOM_EQUACIO.get(m.nom_equacio, m.nom_equacio)}
+            "equacio_fge": NOM_EQUACIO.get(m.nom_equacio, m.nom_equacio),
+            # Minimització: anys de cada prova que fa servir el motor (0 = no la fa servir); None = sense finestra
+            "finestra_dades": ({k: v["anys"] for k, v in m.motor["finestra_dades"]["proves"].items()}
+                               if m.finestra is not None else None)}
 
 
 def _meta_estacio(url: str, sistema: str, cupo: CupoEhr, pacients: int | None = None) -> dict:
@@ -469,6 +472,7 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             m = av.motor
             d = m.connector.get_patient_data(pacient_id)
             servidor = av.servidor
+        d = m.minimitza(d)  # la fitxa tampoc mostra res fora de la finestra de dades del motor
         return {
             "meta": meta,
             "pacient": res.to_dict(),
@@ -476,7 +480,7 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             "auditoria": estats.auditoria(servidor, pacient_id, 20),
             "diagnostics": d.diagnostics,
             "medicacions": d.medicacions,
-            "analitiques": d.analitiques,  # històric complet, cada registre amb el seu origen
+            "analitiques": d.analitiques,  # el que fa servir el motor (finestra de dades), amb el seu origen
             "demografia": d.pacient,
             # Un origen "Sistema - Comunitat" d'una altra comunitat és un informe recuperat de fora
             "comunitat_habitual": cds_hooks.comunitat_habitual(d),

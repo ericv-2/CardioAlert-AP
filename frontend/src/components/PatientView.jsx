@@ -192,7 +192,7 @@ export default function PatientView({ id, sel, version, fuentes, onEstado }) {
           </Tarjeta>
 
           <Tarjeta
-            titulo={`Histórico de analíticas (${historico.length})`}
+            titulo={`Analíticas que usa el motor (${historico.length})`}
             icono={ClipboardList}
             accion={
               <label className="flex items-center gap-2 text-xs text-muted">
@@ -206,6 +206,13 @@ export default function PatientView({ id, sel, version, fuentes, onEstado }) {
               </label>
             }
           >
+            {data.meta.finestra_dades && (
+              <p className="-mt-1 mb-6 text-xs text-muted">
+                Minimización de datos: el motor solo usa los años necesarios de cada prueba (creatinina y UACR{" "}
+                {data.meta.finestra_dades.creatinina} años; NT-proBNP {data.meta.finestra_dades.ntprobnp}; presión arterial y lípidos{" "}
+                {data.meta.finestra_dades.pas}; HbA1c {data.meta.finestra_dades.hba1c}). Las pruebas que no usa no se muestran.
+              </p>
+            )}
             <div className="-m-4 max-h-96 overflow-auto">
               <table className="w-full border-collapse text-left text-sm">
                 <thead className="sticky top-0 bg-clinic-50 text-[11px] font-semibold uppercase tracking-wide text-muted">

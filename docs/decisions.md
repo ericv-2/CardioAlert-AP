@@ -378,3 +378,41 @@ ESTACIÓ (simulador, 5174)                                   ADD-ON (API 8000 + 
 - **Límits.** Sense OAuth ni `fhirAuthorization` (simulació). L'estació no resol el prefetch. El cupo es
   demana sencer (sense `_since`): amb cupos molt més grans caldria exportació incremental. El servidor FHIR
   del simulador guarda l'índex en memòria: si es regeneren les dades cal reiniciar l'estació.
+
+## 15. Finestra de dades: minimització (art. 5.1.c RGPD) (15/11/2026)
+
+Principi: el RGPD (art. 5.1.c, "minimització de dades") demana que les dades siguin "adequades, pertinents i
+limitades al que és necessari" per a la finalitat. L'add-on no necessita tota la història del pacient per
+avaluar les regles: només els últims anys de cada prova que fan servir les regles que la consulten.
+
+- **On es configura.** `motor.finestra_dades` de `config/rules.yaml`: per a cada prova del catàleg
+  (`model/cataleg.py`), els `anys` enrere des de la data de referència i les `regles` que la necessiten.
+  `anys: 0` vol dir que el motor no la fa servir. Les proves que no són a la llista tampoc s'hi fan servir.
+  `enabled: false` desactiva la finestra (com abans). Pendent de validar pel metge.
+- **On s'aplica.** `RiskEngine.minimitza(d)` filtra les analítiques abans de qualsevol regla
+  (`avalua_dades`) i de la gràfica (`series_renals`). La fitxa de l'API (`/api/pacientes/{id}`) també
+  retorna només aquestes dades, i la interfície ho explica a la taula "Analíticas que usa el motor".
+  Diagnòstics i tractaments no tenen finestra: són problemes crònics i tractaments actius, que les regles
+  necessiten sigui quina sigui la data en què es van registrar.
+- **Finestres triades** (les mínimes, en anys sencers, que no canvien cap resultat de les dues cohorts; ho
+  comprova `tests/test_finestra.py` comparant amb la finestra desactivada):
+
+  | Prova | Anys | Regles | Per què |
+  |---|---|---|---|
+  | Creatinina (FGe recalculat) | 5 | fge_descens, mrc_no_diagnosticada, possible_fra, derivacio_nefrologia, creatinina_falta, risc CV | pendent anual del FGe amb tota la sèrie; amb 4 anys canvien 1 + 26 pacients |
+  | UACR | 5 | mrc_no_diagnosticada, albuminuria_sense_accio, derivacio_nefrologia, uacr_falta, risc CV | cronicitat i duplicació; amb 4 anys en canvia 1 |
+  | NT-proBNP | 4 | possible_ic | amb 3 anys canvien 3 + 11 pacients (NT-proBNP antics que disparen l'alerta) |
+  | PAS, PAD, colesterol total, HDL, LDL, potassi | 3 | risc CV, ben_tractat, finerenona | només l'últim valor; amb 2 anys canvien 48 pacients del cupo realista |
+  | HbA1c | 2 | risc CV (SCORE2-Diabetes), ben_tractat | només l'últim valor dels diabètics |
+  | FGe informat, glucosa, triglicèrids, IMC | 0 | cap | el motor no les fa servir (el FGe es recalcula de la creatinina) |
+
+- **Coherència.** La finestra de la UACR i de la creatinina cobreix el termini màxim sense prova de
+  `uacr_falta` i `creatinina_falta` (12 mesos, editable fins a 60): si no, l'alerta diria "sin ninguna
+  determinación" en lloc de "hace N meses". El test ho comprova.
+- **Per validar amb el metge.** Una NT-proBNP de fa 4 anys continua disparant `possible_ic` perquè la regla
+  validada fa servir l'últim valor; clínicament potser caldria una finestra més curta (p. ex. 1-2 anys) i
+  demanar-ne una de nova. No s'ha canviat perquè alteraria resultats ja validats.
+- **Límit.** La finestra s'aplica dins de l'add-on, després de llegir l'estació. El pas següent seria
+  demanar-li només aquestes dates (`Patient/{id}/$everything?start=` o `_typeFilter` a l'exportació Bulk
+  Data), perquè les dades antigues ni tan sols surtin de l'estació. El servidor del simulador encara no ho
+  admet.
