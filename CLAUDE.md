@@ -41,7 +41,16 @@ El sistema debe cruzar automáticamente variables y tendencias, no solo valores 
   
 ---
 
-## Estado actual del repo (actualizado 14/11/2026) — prevalece sobre lo anterior si hay conflicto
+## Estado actual del repo (actualizado 15/11/2026) — prevalece sobre lo anterior si hay conflicto
+
+### Dos aplicaciones: el ADD-ON y el SIMULADOR
+- **ADD-ON (el producto, CardioAlert AP):** motor (`engine/`), API (`api/`, puerto 8000, con el servicio CDS
+  Hooks) y su interfaz completa (`frontend/`, puerto 5173: lista "Hoy", cupo, ficha, parámetros).
+  Funciona por su cuenta, sin ninguna estación clínica.
+- **SIMULADOR (`simulador/`, puerto 5174):** la estación clínica de una comunidad, una aplicación web aparte
+  con su propia historia clínica. Por defecto NO tiene el add-on: se instala por URL en
+  "Configuración → Integraciones". Solo habla con el add-on por estándares (CDS Hooks + lanzamiento SMART on
+  FHIR simulado); no importa código del add-on ni llama a `/api/...`.
 
 ### Estructura
 ```
@@ -66,13 +75,20 @@ tests/        test_cohort_realista.py (prevalencias objetivo y coherencia de la 
               REGICOR, volante), test_api.py, test_cds_hooks.py, test_export_excel.py, test_fhir_remote.py (servidor simulado).
 docs/         dades_sintetiques.md (criterios de generación), decisions.md (decisiones de diseño) y
               cohort_realista.md (fuentes, prevalencias objetivo y obtenidas de la cohorte realista).
-api/          main.py (FastAPI + CORS: /api/cupo, /api/pacientes/{id}, /api/export/excel, /api/rules y el
-              servicio CDS Hooks /cds-services), cds_hooks.py (traduce un ResultatPacient a una tarjeta CDS) y
-              rules_store.py (edición validada de rules.yaml: lista blanca, rangos, copia en config/backups/).
-frontend/     Web React (Vite + Tailwind + Lucide). src/App.jsx (rutas por hash y selectores),
-              src/components/: Header, CupoView (Vista 1), PatientView + RenalChart + NoteModal (Vista 2),
-              RulesView (Vista 3), EstacionView (estación clínica simulada, cliente CDS Hooks).
-              Sin lógica clínica: todo viene de la API.
+api/          ADD-ON. main.py (FastAPI + CORS: /api/cupo, /api/pacientes/{id}, /api/export/excel, /api/rules y el
+              servicio CDS Hooks /cds-services), cds_hooks.py (traduce un ResultatPacient a una tarjeta CDS y
+              anuncia la interfaz del add-on en el discovery) y rules_store.py (edición validada de rules.yaml:
+              lista blanca, rangos, copia en config/backups/).
+frontend/     ADD-ON: su interfaz (React + Vite + Tailwind + Lucide, puerto 5173). src/App.jsx (rutas por hash y
+              selectores), src/launch.js (contexto de lanzamiento desde una estación clínica),
+              src/components/: Header, CupoView (Vista 1, con "Hoy"), PatientView + RenalChart + NoteModal
+              (Vista 2), RulesView (Vista 3). Sin lógica clínica: todo viene de la API. Ya NO contiene la estación.
+simulador/    SIMULADOR: estación clínica simulada (React + Vite + Tailwind, puerto 5174), aplicación aparte con
+              su propio package.json. servidor-fhir.js (plugin de Vite: servidor FHIR de solo lectura en /fhir
+              sobre data/synthetic/fhir), src/historia.js (lee ese FHIR), src/integracion.js (instalación en
+              localStorage, discovery, hook patient-view, lanzamiento), src/components/: Agenda, Historia,
+              Integraciones (Configuración → Integraciones), PanelCds, ModalAddon (iframe con el add-on).
+start_addon / start_simulador / start_demo (.bat y .sh)   scripts de arranque (ver Comandos).
 exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no versionado).
 ```
 
@@ -87,11 +103,22 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
 - `python -m pytest` ejecuta los tests.
 - `python -m engine` resume el cupo priorizado; `python -m engine P003` imprime la nota clínica de un paciente;
   `python -m engine --excel` escribe `exports/cupo_evaluado.xlsx`; `--escala regicor` cambia la calculadora.
-- **Arrancar la demo (dos terminales, desde la raíz del repo):**
-  1. API: `python -m uvicorn api.main:app --port 8000` (documentación interactiva en http://localhost:8000/docs).
-  2. Web: `cd frontend`, `npm install` (solo la primera vez) y `npm run dev` -> http://localhost:5173.
-     La web llama a `/api/...` y `/cds-services/...` y Vite lo reenvía al puerto 8000 (`VITE_API_PROXY` para cambiarlo).
-  Requiere Node.js >= 20. `npm run build` genera `frontend/dist/`.
+- `python -m engine --rules-excel` escribe la hoja de revisión clínica de las reglas (`exports/revision_reglas.xlsx`).
+- **Arrancar (scripts en la raíz; `.bat` en Windows, `.sh` en Linux/macOS/Git Bash). Instalan las dependencias
+  si faltan; los `.bat` usan `npm.cmd`. Requieren Node.js >= 20 (y Python >= 3.10 el add-on):**
+  - `start_addon` arranca SOLO el add-on: API en http://localhost:8000 (`/docs`, `/cds-services`) e interfaz en
+    http://localhost:5173. Imprime las URL en la consola. Usa `.venv` si existe.
+  - `start_simulador` arranca SOLO la estación clínica simulada: http://localhost:5174 (no necesita Python).
+  - `start_demo` arranca los dos (en Windows, cada uno en su ventana, y abre la estación en el navegador;
+    `DEMO_SIN_NAVEGADOR=1` para no abrirlo).
+  - **Guion de la demo:** estación sin add-on -> Configuración → Integraciones -> URL `http://localhost:8000` ->
+    Instalar (se ven los servicios del discovery) -> abrir P003 (tarjeta + informe de DIRAYA) -> botón
+    "CardioAlert AP" (ventana con la ficha de P003, lista "Hoy" y cupo) -> Desinstalar.
+- A mano: `python -m uvicorn api.main:app --port 8000`; `cd frontend && npm install && npm run dev`;
+  `cd simulador && npm install && npm run dev`. Puertos fijos (`strictPort`): 8000, 5173 y 5174.
+  La interfaz del add-on llama a `/api/...` y Vite lo reenvía al puerto 8000 (`VITE_API_PROXY` para cambiarlo).
+  `CARDIOALERT_UI_URL` (por defecto http://localhost:5173) es la URL de la interfaz que la API anuncia a la
+  estación; `SIMULADOR_DATOS` cambia la carpeta de bundles FHIR del simulador.
 - Servidor FHIR remoto (https://hapi.fhir.org/baseR4, público): `python scripts/upload_to_fhir.py` sube los
   100 pacientes sintéticos con `meta.tag` "the-goats-hackathon" (ya subidos el 14/11/2026; es un
   servidor de pruebas compartido y los datos pueden desaparecer: repetir si la web avisa de que no los encuentra).
@@ -169,13 +196,27 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   caracteres), `indicator` (según `grup_ordre`: 1 = critical, 2 y 3 = warning, 4 = info), `detail` (Markdown: motivo y
   origen del dato) y `suggestions` (acciones del motor, sin `actions`: no escribe en la historia). Siempre
   hay tarjeta, también sin alertas (info). `source` y `scale` en la URL son una extensión propia. El motor
-  no se toca: `api/cds_hooks.py` solo traduce.
-- **Estación clínica simulada** (`#/estacion` y `#/estacion/P003`, enlace en la navegación): historia
-  clínica GENÉRICA de atención primaria (sin nombre, logos ni diseño de ningún producto real), con la
-  etiqueta visible "Simulación – datos sintéticos". Al abrir un paciente llama al hook `patient-view` y
-  muestra la tarjeta en el panel lateral. Los informes de una comunidad distinta de `comunitat_habitual`
-  (campo de `/api/pacientes/{id}`: la comunidad con más analíticas) llevan "Informe recuperado de otra
-  comunidad" (p. ej. el de DIRAYA de P003).
+  no se toca: `api/cds_hooks.py` solo traduce. El discovery anuncia la interfaz del add-on en
+  `extension["cardioalert-app"].launchUrl` y la tarjeta lleva un enlace `links[type=smart]` a esa URL.
+- **Add-on instalable (docs/decisions.md §13):** la estación solo conoce la URL del add-on
+  (`http://localhost:8000`). Al instalar llama a `GET {url}/cds-services`, muestra los servicios y guarda la
+  instalación en `localStorage` (`estacion-simulada.integracion.v1`). Sin add-on no hay panel ni botón.
+  Con add-on: panel "Apoyo a la decisión" (hook `patient-view` al abrir un paciente) y botón "CardioAlert AP"
+  en la barra de herramientas, que abre la interfaz del add-on en una ventana modal (iframe) con
+  `?iss=<FHIR de la estación>&launch=<contexto>`. **Lanzamiento SMART on FHIR SIMULADO, sin OAuth:** `launch`
+  es un JSON en base64url con `patient`, `fhirUser`, `practitioner` y `ehr`; `frontend/src/launch.js` lo lee y
+  abre la ficha de ese paciente, con una franja de contexto y acceso a "Hoy" y al cupo. Si el add-on o su
+  interfaz no responden: aviso en la estación, en el panel y en la ventana; la historia sigue funcionando.
+- **Estación clínica simulada** (`simulador/`, rutas `#/`, `#/paciente/P003` y
+  `#/configuracion/integraciones`): historia clínica GENÉRICA de atención primaria (sin nombre, logos ni
+  diseño de ningún producto real), con la etiqueta visible "Simulación – datos sintéticos" y un profesional
+  simulado (Dra. Carmen Soler). Lee su propio servidor FHIR (`/fhir/Patient`, `/fhir/Patient/{id}/$everything`).
+  Los informes de una comunidad distinta de la habitual del paciente (la de la mayoría de sus analíticas)
+  llevan "Informe recuperado de otra comunidad" (p. ej. el de DIRAYA de P003), con o sin add-on.
+- **Pendiente / límites de la separación:** el generador y los datos sintéticos siguen en `scripts/` y `data/`
+  (moverlos a `simulador/` rompería rutas del motor, la API, los tests y la subida al FHIR remoto). El add-on
+  y el simulador leen la MISMA carpeta `data/synthetic/fhir`: el add-on todavía no lee del servidor FHIR de la
+  estación (`fhirServer` / `iss` se envían pero no se usan). El simulador solo muestra la cohorte demo (100).
 - **Fuente remota:** la API descarga el servidor FHIR una sola vez y lo guarda en memoria; si falla, tarda
   más de 60 s o no tiene nuestros pacientes, vuelve a los datos locales con un aviso visible en la web y no
   reintenta hasta pasados 60 s.

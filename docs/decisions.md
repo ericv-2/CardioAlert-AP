@@ -128,6 +128,9 @@ ho diu al motiu ("dato cruzado entre DIRAYA - Andalucía y eCAP - Catalunya").
 
 ## 10. Servei CDS Hooks i estació clínica simulada (14/11/2026)
 
+> L'estació simulada ja no és una pàgina de la web de l'add-on: des del 15/11/2026 és una aplicació a part
+> (`simulador/`). Vegeu la secció 13. El que es diu aquí del servei CDS Hooks continua vigent.
+
 - **Servei CDS Hooks.** `GET /cds-services` (discovery) i `POST /cds-services/cardioalert-patient-view`
   (hook `patient-view`), seguint l'especificació HL7 CDS Hooks 2.0. `api/cds_hooks.py` només tradueix el
   `ResultatPacient` del motor a una targeta; el motor no s'ha modificat.
@@ -253,3 +256,42 @@ Detall, fonts i taula comparativa a `docs/cohort_realista.md`.
 - **Limitacions conegudes:** no hi ha malaltia CV establerta ni hipercolesterolèmia familiar a les dades;
   el seguiment i el tractament són supòsits de l'equip; les xifres dels articles no s'han tornat a
   contrastar amb les taules originals.
+
+## 13. L'add-on i el simulador són dues aplicacions (15/11/2026)
+
+Objectiu: demostrar que CardioAlert AP és un **add-on que s'instal·la** en una estació clínica existent, no
+una pantalla més d'una mateixa web. Substitueix la part de l'estació simulada de la secció 10.
+
+- **Dues aplicacions, tres ports.** ADD-ON: API (`api/`, 8000) + interfície (`frontend/`, 5173). SIMULADOR:
+  estació clínica (`simulador/`, 5174), amb el seu `package.json`. El simulador no importa res de l'add-on ni
+  crida `/api/...`: només `GET /cds-services`, `POST /cds-services/<servei>` i la URL de llançament.
+- **L'estació té la seva pròpia història clínica.** Un plugin de Vite (`simulador/servidor-fhir.js`) serveix
+  els bundles de `data/synthetic/fhir` com un servidor FHIR de només lectura (`/fhir/Patient`,
+  `/fhir/Patient/{id}/$everything`, `/fhir/metadata`). Per això l'estació funciona sencera sense l'add-on, i
+  no necessita Python. La "data d'avui" de la simulació és el `timestamp` dels bundles (13/11/2026).
+- **Instal·lació per URL.** A "Configuración → Integraciones" hi ha un sol camp (la URL de l'add-on, per
+  defecte `http://localhost:8000`). En instal·lar, l'estació fa el discovery i mostra els serveis trobats;
+  l'estat es desa a `localStorage` i es manté en recarregar. "Desinstalar" l'esborra. Sense add-on no hi ha
+  ni panell ni botó, i la paraula "CardioAlert" no surt enlloc de l'estació.
+- **Com sap l'estació on és la interfície de l'add-on?** No ho escriu l'usuari: el discovery l'anuncia al camp
+  `extension` del servei (`extension["cardioalert-app"].launchUrl`, que l'especificació CDS Hooks permet), i
+  la targeta porta un enllaç `links` de tipus `smart`. L'API la llegeix de `CARDIOALERT_UI_URL`.
+- **Finestra modal amb la interfície completa.** El botó de la barra d'eines (i l'enllaç de la targeta) obre
+  un iframe amb `launchUrl/?iss=<FHIR de l'estació>&launch=<context>`. És un **llançament SMART on FHIR
+  simulat**: en un llançament real, `launch` és un identificador opac que l'aplicació bescanvia per OAuth 2.0
+  pel pacient i l'usuari; aquí porta directament aquest context (JSON en base64url: `patient`, `fhirUser`,
+  `practitioner`, `ehr`). No hi ha autenticació: només serveix per a la demo amb dades sintètiques.
+  La interfície de l'add-on (`frontend/src/launch.js`) s'obre a la fitxa del pacient i mostra una franja amb
+  l'estació, el professional, el pacient i els enllaços "Ficha de P003" i "Lista «Hoy» y cupo".
+- **Si l'add-on no respon.** Totes les crides tenen límit de temps. L'estació mostra un avís a dalt, el
+  panell diu "El add-on no responde" amb "Reintentar", el botó porta l'etiqueta "no responde" i la finestra
+  comprova que la interfície contesta abans de pintar l'iframe. La història clínica continua disponible.
+- **Scripts.** `start_addon`, `start_simulador` i `start_demo` (.bat i .sh): instal·len dependències si
+  falten, comproven versions i ports, i imprimeixen les URL. Els `.bat` fan servir `npm.cmd`.
+- **El motor no s'ha tocat.** Cap canvi a `engine/`, `model/`, `connectors/`, `config/` ni a les dades; els
+  resultats de les dues cohorts i les tres escales són idèntics byte a byte als d'abans.
+- **Què queda pendent.** (1) El generador i les dades segueixen a `scripts/` i `data/`: moure'ls a
+  `simulador/` trencaria camins del motor, l'API, els tests i la pujada al FHIR remot. (2) L'add-on i
+  l'estació llegeixen la mateixa carpeta de dades; l'add-on encara no llegeix del servidor FHIR de l'estació
+  (el `fhirServer` de la petició no es fa servir). (3) El simulador només mostra la cohort demo.
+
