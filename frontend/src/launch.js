@@ -24,6 +24,10 @@ const consulta = new URLSearchParams(window.location.search);
 // Servidor FHIR de la estación clínica (null = el que la API tenga configurado por defecto).
 export const issEstacion = consulta.get("iss")?.trim() || null;
 
+// El contexto de lanzamiento tal cual: la API lo recibe en cada petición para saber qué profesional hace cada
+// acción (registro de actividad). En SMART real se enviaría el token de acceso.
+export const launchCrudo = consulta.get("launch") || null;
+
 function leer() {
   const launch = consulta.get("launch");
   if (!launch) return null;

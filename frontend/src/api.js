@@ -1,8 +1,11 @@
 // Cliente de la API de CardioAlert AP. Sin lógica clínica: solo pide datos y los devuelve.
+import { issEstacion, launchCrudo } from "./launch.js";
+
 const BASE = import.meta.env.VITE_API_URL ?? "";
 
+// Todas las peticiones llevan el contexto de lanzamiento (`launch`): el profesional que queda en el registro.
 function url(path, params = {}) {
-  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== ""));
+  const q = new URLSearchParams(Object.entries({ ...params, launch: launchCrudo }).filter(([, v]) => v != null && v !== ""));
   return `${BASE}${path}${q.size ? `?${q}` : ""}`;
 }
 
@@ -45,12 +48,15 @@ export const api = {
     }),
   rules: (signal) => request(url("/api/rules"), { signal }),
   saveRules: (canvis) =>
-    request(url("/api/rules"), {
+    request(url("/api/rules", { iss: issEstacion }), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ canvis }),
     }),
   excelUrl: ({ iss }) => url("/api/export/excel", { iss }),
+  // Registro de actividad (AuditEvent): filtros paciente, profesional y tipo de acción.
+  actividad: ({ iss }, filtros = {}, signal) => request(url("/api/actividad", { iss, ...filtros }), { signal }),
+  actividadFhirUrl: ({ iss }, filtros = {}) => url("/api/actividad", { iss, ...filtros, formato: "fhir" }),
   // Petición conjunta de las pruebas pendientes (UACR, creatinina): "csv" o "xlsx".
   pruebasUrl: ({ iss }, formato) => url("/api/export/pruebas-pendientes", { iss, formato }),
 };
