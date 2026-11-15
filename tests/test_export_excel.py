@@ -67,7 +67,7 @@ def test_cli_excel(tmp_path, capsys):
 
 def test_descarrega_des_de_l_api(tmp_path):
     rules = shutil.copy(ARREL / "config" / "rules.yaml", tmp_path / "rules.yaml")
-    r = TestClient(create_app(rules_path=rules)).get("/api/export/excel", params={"scale": "score2"})
+    r = TestClient(create_app(font_per_defecte="local", rules_path=rules)).get("/api/export/excel", params={"scale": "score2"})
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     assert 'filename="cupo_evaluado.xlsx"' in r.headers["content-disposition"]

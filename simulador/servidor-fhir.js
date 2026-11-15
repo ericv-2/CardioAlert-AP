@@ -22,7 +22,7 @@
 //   POST /estacion/cupo       { "id": "demo" | "realista" }
 //
 // Se usa de dos maneras: como plugin de Vite (en el puerto de la estación, 5174) o por su cuenta:
-//   node servidor-fhir.js [--port 5174] [--datos carpeta] [--cupo demo|realista]
+//   node servidor-fhir.js [--port 5174] [--host localhost] [--datos carpeta] [--cupo demo|realista]
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -349,5 +349,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       res.statusCode = 404;
       return res.end("Servidor FHIR de la estación clínica simulada: use /fhir/metadata");
     })
-    .listen(puerto, "127.0.0.1", () => console.log(`Servidor FHIR de la estación clínica simulada: http://localhost:${puerto}/fhir (cupo activo: ${estacion.estadoCupos().activo})`));
+    // Mismo criterio que Vite: escucha en "localhost" (en Windows es ::1, que es lo primero que prueban los clientes)
+    .listen(puerto, opcion("host", "localhost"), () => console.log(`Servidor FHIR de la estación clínica simulada: http://localhost:${puerto}/fhir (cupo activo: ${estacion.estadoCupos().activo})`));
 }

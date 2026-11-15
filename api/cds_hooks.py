@@ -4,12 +4,16 @@ Tradueix un `ResultatPacient` del motor a una targeta ("card") de l'especificaci
 Les rutes són a `api/main.py`:
     GET  /cds-services                              discovery
     POST /cds-services/cardioalert-patient-view     targeta del pacient de `context.patientId`
+
+Les dades del pacient són de l'estació clínica: el servei les llegeix del `prefetch` de la petició (si
+l'estació resol les plantilles que anuncia el discovery) o del seu servidor FHIR (`fhirServer`).
 """
 from __future__ import annotations
 
 import uuid
 from collections import Counter
 
+from connectors.fhir_ehr_connector import PREFETCH
 from engine import ResultatPacient
 from model.entitats import DadesPacient
 
@@ -21,7 +25,11 @@ SERVEI = {
     "title": "CardioAlert AP",
     "description": ("Cribado cardiorrenal-metabólico pasivo al abrir la historia del paciente: riesgo, motivo, "
                     "origen del dato y acción preventiva sugerida (datos sintéticos)."),
-    "usageRequirements": "Solo datos sintéticos de demostración. No requiere prefetch ni acceso al servidor FHIR del cliente.",
+    # Plantilles de prefetch: el que el servei necessita del pacient. Són opcionals per a l'estació.
+    "prefetch": dict(PREFETCH),
+    "usageRequirements": ("Solo datos sintéticos de demostración. Necesita los datos del paciente: o bien el prefetch "
+                          "completo, o bien `fhirServer` con lectura de Patient/{id}/$everything (sin OAuth en esta "
+                          "simulación). No escribe en la historia clínica."),
 }
 # Grup de l'ordre de la llista de treball -> indicador de la targeta (urgència visual que demana
 # l'especificació; no és una classificació de risc): alerta urgent = critical, risc alt o molt alt sense
