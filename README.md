@@ -2,8 +2,6 @@
 
 **Add-on para atención primaria que detecta el riesgo cardiovascular y renal oculto en el cupo, prioriza a los pacientes y se integra en el flujo de trabajo de la médica sin añadirle trabajo.**
 
-Equipo 34 · The GOATS · Reto 1 «Automatizar lo repetitivo» (Hackathon Boehringer Ingelheim)
-
 > Prototipo con **datos sintéticos**. No es un producto sanitario ni una herramienta oficial de ningún servicio de salud. La estación clínica que se ve en la demo es una simulación genérica.
 
 Vídeo: [https://youtu.be/tYDvQKqgcfE](https://youtu.be/tYDvQKqgcfE)
@@ -97,11 +95,11 @@ El motor aplica escalas y guías publicadas. No inventa criterios propios.
 | REGICOR (Marrugat et al.) | **Solo como referencia** junto a la escala ESC; no reclasifica | *J Epidemiol Community Health* 2003;57:634–8 | [doi:10.1136/jech.57.8.634](https://doi.org/10.1136/jech.57.8.634) |
 | Validación de REGICOR, estudio VERIFICA | Respaldo de la calibración de REGICOR | *J Epidemiol Community Health* 2007;61:40–7 | [doi:10.1136/jech.2005.038505](https://doi.org/10.1136/jech.2005.038505) |
 
-Las alertas y acciones renales y terapéuticas citan el marco del enunciado del reto («STAMP on CKD», ESC/ERA 2026); la alerta de riesgo cardiovascular cita la guía ESC 2021.
+Las alertas y acciones renales y terapéuticas citan el marco «STAMP on CKD» de las guías ESC/ERA 2026; la alerta de riesgo cardiovascular cita la guía ESC 2021.
 
 **Umbrales.** Todos están en [`config/rules.yaml`](config/rules.yaml), no en el código. **No deben modificarse sin validación clínica.**
 
-**Validación clínica.** Recomendaciones, umbrales y clases de evidencia (clase ESC/KDIGO/ADA) revisados y validados por David Cebotari (médico, equipo The GOATS) el 15/11/2026. 
+**Validación clínica.** Recomendaciones, umbrales y clases de evidencia (clase ESC/KDIGO/ADA) revisados y validados por David Cebotari (médico) el 15/11/2026. 
 
 **Verificación de las fórmulas.** Los coeficientes de las fórmulas están transcritos de las publicaciones originales citadas. Tests automáticos: SCORE2 se comprueba contra el ejemplo publicado en el artículo (50 años, fumador/a, PAS 140 mmHg, colesterol total 5,5 y HDL 1,3 mmol/L, región de riesgo bajo: 5,9 % en hombre y 4,2 % en mujer); CKD-EPI 2009 y REGICOR, contra casos calculados con la fórmula publicada; SCORE2-OP, SCORE2-Diabetes, CKD Add-on y KFRE solo tienen tests propios de coherencia (selección del modelo, rango y sentido del efecto), sin ejemplo publicado. SCORE2, SCORE2-OP, SCORE2-Diabetes y CKD Add-on se contrastaron, además, con el paquete R RiskScorescvd (fuera de los tests automáticos).
 
@@ -288,6 +286,6 @@ start_*       Scripts de arranque (.bat y .sh)
 
 ## 15. Equipo
 
-- **David Cebotari** — médico, líder del equipo y criterio clínico.
+- **David Cebotari** — médico y criterio clínico.
 - **Pau Riera** — lógica médica del programa y diseño de pantalla.
 - **Èric Vargas** — biotecnólogo, gestión de datos y privacidad.
