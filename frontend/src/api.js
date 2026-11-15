@@ -32,6 +32,15 @@ export const api = {
   // `refresh`: vuelve a leer el cupo de la estación (exportación Bulk Data) aunque ya esté en memoria.
   cupo: ({ iss }, { refresh = false } = {}, signal) => request(url("/api/cupo", { iss, refresh: refresh ? "true" : null }), { signal }),
   pacient: (id, { iss }, signal) => request(url(`/api/pacientes/${encodeURIComponent(id)}`, { iss }), { signal }),
+  // Estado de las alertas («Pendiente», «Citado», «Revisado», «Pospuesto») y lista «Hoy», sin volver a enviar el cupo.
+  estados: ({ iss }, signal) => request(url("/api/estados", { iss }), { signal }),
+  // `profesional`: el del contexto de lanzamiento de la estación; el cambio queda en el log de auditoría.
+  cambiarEstado: (id, { iss }, { estat, fins = null, profesional }) =>
+    request(url(`/api/pacientes/${encodeURIComponent(id)}/estado`, { iss }), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ estat, fins, professional: profesional }),
+    }),
   rules: (signal) => request(url("/api/rules"), { signal }),
   saveRules: (canvis) =>
     request(url("/api/rules"), {

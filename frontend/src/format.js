@@ -29,6 +29,27 @@ export const CATEGORIA_CV = {
 // Grupos del orden de la lista de trabajo (no son una clasificación de riesgo): texto corto para filtros.
 export const GRUPO_CORTO = { 1: "Alertas urgentes", 2: "Muy alto sin tratar", 3: "Alto sin tratar", 4: "Resto" };
 
+// Estado de la alerta de cada paciente (lo guarda el add-on, por servidor FHIR).
+export const ESTADOS = {
+  pendent: { texto: "Pendiente", clase: "bg-white text-slate-700 ring-slate-300" },
+  citat: { texto: "Citado", clase: "bg-sky-50 text-sky-800 ring-sky-200" },
+  revisat: { texto: "Revisado", clase: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
+  posposat: { texto: "Pospuesto", clase: "bg-violet-50 text-violet-800 ring-violet-200" },
+};
+export const ESTADO_PENDIENTE = { estat: "pendent", fins: null, quan: null, qui: null, vencut: false };
+
+export const textoEstado = (e) => {
+  if (!e) return ESTADOS.pendent.texto;
+  if (e.estat === "posposat") return `Pospuesto hasta ${fecha(e.fins)}`;
+  if (e.vencut) return `Pendiente (pospuesto hasta ${fecha(e.fins)})`;
+  return ESTADOS[e.estat]?.texto ?? e.estat;
+};
+
+export const fechaHora = (iso) => {
+  if (!iso) return "—";
+  return `${fecha(iso)} ${iso.slice(11, 16)}`;
+};
+
 // Nombre corto de las alertas que pueden ser urgentes (la lista sale de rules.yaml: meta.alertes_urgents).
 export const ALERTA_CORTA = {
   possible_ic: "posible IC",

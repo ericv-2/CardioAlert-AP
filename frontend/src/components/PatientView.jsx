@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, BellRing, CircleCheck, ClipboardList, FileText, Lightbulb, ListChecks, PiggyBank } from "lucide-react";
 import { api } from "../api.js";
 import { ESTADO_RENAL, fecha, KDIGO, num, pct, SEXO } from "../format.js";
+import EstadoPanel from "./EstadoPanel.jsx";
 import NoteModal from "./NoteModal.jsx";
 import RenalChart, { estiloOrigenes, Marca } from "./RenalChart.jsx";
-import { Cargando, CruzadoBadge, ErrorPanel, GrupoTag, KdigoTag, RiesgoCvChip } from "./ui.jsx";
+import { Cargando, CruzadoBadge, ErrorPanel, EstadoChip, GrupoTag, KdigoTag, RiesgoCvChip } from "./ui.jsx";
 
 function Tarjeta({ titulo, icono: Icono, accion, children, className = "" }) {
   return (
@@ -41,12 +42,20 @@ function OrigenTag({ origen, estilos }) {
   );
 }
 
-export default function PatientView({ id, sel, version, fuentes }) {
+export default function PatientView({ id, sel, version, fuentes, onEstado }) {
   const [estado, setEstado] = useState({ data: null, error: null });
   const [intento, setIntento] = useState(0);
   const [modal, setModal] = useState(false);
   const [prueba, setPrueba] = useState("TODAS");
   const cerrarModal = useCallback(() => setModal(false), []);
+  // Tras cambiar el estado: se actualiza la ficha sin volver a leerla y la página principal («Hoy»)
+  const estadoCambiado = useCallback(
+    (r) => {
+      setEstado((s) => (s.data ? { ...s, data: { ...s.data, estat: r.estat, auditoria: r.auditoria } } : s));
+      onEstado?.();
+    },
+    [onEstado],
+  );
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -97,6 +106,7 @@ export default function PatientView({ id, sel, version, fuentes }) {
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <h1 className="text-xl font-semibold text-ink">{p.nom}</h1>
               <RiesgoCvChip p={p} prefijo="Riesgo CV: " />
+              <EstadoChip estado={data.estat} />
               {p.dades_creuades && <CruzadoBadge fuentes={p.fonts_dades} />}
               {p.ben_tractat && (
                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
@@ -135,6 +145,18 @@ export default function PatientView({ id, sel, version, fuentes }) {
           <Dato etiqueta="Riesgo CV a 10 años" valor={pct(p.risc_cv_percentatge)} detalle={p.escala_usada ?? "no calculable"} />
         </dl>
       </section>
+
+      {(p.alertes_actives.length > 0 || data.estat?.estat !== "pendent" || data.auditoria.length > 0) && (
+        <EstadoPanel
+          key={p.pacient_id}
+          id={p.pacient_id}
+          sel={sel}
+          estado={data.estat}
+          auditoria={data.auditoria}
+          fechaReferencia={data.meta.data_referencia}
+          onCambiado={estadoCambiado}
+        />
+      )}
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">

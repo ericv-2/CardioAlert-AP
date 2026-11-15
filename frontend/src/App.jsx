@@ -28,6 +28,7 @@ export default function App() {
   const [cupo, setCupo] = useState({ data: null, loading: true, error: null });
   const [filtro, setFiltro] = useState("TODOS");
   const [busqueda, setBusqueda] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState("TODOS");
 
   useEffect(() => {
     const onHash = () => {
@@ -49,6 +50,15 @@ export default function App() {
   }, [peticion]);
 
   const recalcular = useCallback(() => setPeticion((p) => ({ n: p.n + 1, refresh: false })), []);
+  // Un cambio de estado solo toca los estados y «Hoy»: no se vuelve a pedir el cupo entero
+  const refrescarEstados = useCallback(() => {
+    api
+      .estados(SEL)
+      .then((e) =>
+        setCupo((c) => (c.data ? { ...c, data: { ...c.data, estats: e.estats, llista_avui: e.llista_avui, recompte_estats: e.recompte_estats } } : c)),
+      )
+      .catch(() => {});
+  }, []);
   const releer = useCallback(() => setPeticion((p) => ({ n: p.n + 1, refresh: true })), []);
 
   return (
@@ -74,10 +84,19 @@ export default function App() {
       />
       <main className="mx-auto max-w-[1440px] px-4 pb-16 pt-5 lg:px-6">
         {route.view === "cupo" && (
-          <CupoView cupo={cupo} onRetry={recalcular} filtro={filtro} onFiltro={setFiltro} busqueda={busqueda} onBusqueda={setBusqueda} />
+          <CupoView
+            cupo={cupo}
+            onRetry={recalcular}
+            filtro={filtro}
+            onFiltro={setFiltro}
+            busqueda={busqueda}
+            onBusqueda={setBusqueda}
+            filtroEstado={filtroEstado}
+            onFiltroEstado={setFiltroEstado}
+          />
         )}
         {route.view === "parametros" && <RulesView kpis={cupo.data?.kpis} recalculando={cupo.loading} onSaved={recalcular} />}
-        {route.view === "paciente" && <PatientView id={route.id} sel={SEL} version={peticion.n} fuentes={cupo.data?.kpis.fonts} />}
+        {route.view === "paciente" && <PatientView id={route.id} sel={SEL} version={peticion.n} fuentes={cupo.data?.kpis.fonts} onEstado={refrescarEstados} />}
       </main>
     </div>
   );

@@ -9,3 +9,4 @@ exports/
 node_modules/
 frontend/dist/
 simulador/dist/
+estat_addon/

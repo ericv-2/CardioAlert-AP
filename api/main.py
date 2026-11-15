@@ -13,6 +13,9 @@ Endpoints:
     GET  /api/cupo                                            KPIs + cupo avaluat en l'ordre de la llista de treball
     GET  /api/pacientes/{id}                                  fitxa: resultat, històric amb origen i sèries renals
     GET  /api/export/excel                                    descàrrega del cupo complet en .xlsx
+    GET  /api/estados                                         estat de cada alerta (Pendiente, Citado…) i llista «Hoy»
+    POST /api/pacientes/{id}/estado                           canvia l'estat d'un pacient (queda al log d'auditoria)
+    GET  /api/pacientes/{id}/auditoria, GET /api/auditoria    log d'auditoria dels canvis d'estat
     GET  /api/rules, POST /api/rules                          consulta i ajust dels llindars de rules.yaml
     GET  /cds-services                                        CDS Hooks: discovery (anuncia també la interfície)
     POST /cds-services/cardioalert-patient-view               CDS Hooks: targeta del hook patient-view
@@ -40,7 +43,8 @@ import re
 import threading
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -59,6 +63,7 @@ from engine.risk_engine import ARREL, CONFIG_DEFECTE, GRUPS_ORDRE, NOM_EQUACIO
 from model import DadesPacient
 
 from . import cds_hooks
+from .estats import ErrorEstat, EstatsStore, efectiu
 from .rules_store import ErrorValidacio, RulesStore
 
 # Fitxers de l'estació simulada, llegits directament: només per a `source=local` (tests i exemple d'una altra font)
@@ -76,6 +81,14 @@ URL_FHIR_ESTACIO = "http://localhost:5174/fhir"  # servidor FHIR de l'estació s
 # Servidors FHIR dels quals l'add-on accepta llegir (expressió regular sobre la URL sencera). Per defecte,
 # només estacions d'aquest ordinador: el `fhirServer` / `iss` arriba de fora i no s'ha de seguir a cegues.
 FHIR_PERMESOS = r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(/.*)?"
+# On l'add-on desa l'estat de les alertes i el log d'auditoria (un subdirectori per servidor FHIR)
+DIR_ESTATS = ARREL / "estat_addon"
+
+
+def regles_avui(r: ResultatPacient, config: dict) -> set[str]:
+    """Alertes que compten per a la llista «Hoy» i per tornar un pacient a «Pendiente»."""
+    fora = set(config["motor"]["prioritat"].get("alertes_fora_avui", []))
+    return {a.regla for a in r.alertes_actives if a.regla not in fora}
 
 
 def _milers(n: int) -> str:
@@ -127,19 +140,22 @@ class Avaluacio:
     segons_calcul: float  # tot plegat: lectura de la font + motor + serialització
     segons_lectura: float | None = None  # només amb l'estació: exportació Bulk Data (descàrrega + lectura)
     estacio: dict | None = None  # només amb l'estació: `_meta_estacio` del cupo que s'ha avaluat
+    servidor: str = ""  # clau dels estats de les alertes: la URL del servidor FHIR (o la font de proves)
+    calculat_a: str = field(default_factory=lambda: datetime.now().astimezone().isoformat(timespec="seconds"))
 
 
 def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path = DADES_LOCALS,
                remote_factory: Callable[[], Connector] | None = None, remot_public: bool = False,
                dades_realista: str | Path = DADES_REALISTA, url_interficie: str | None = None,
                font_per_defecte: Font = "ehr", url_fhir: str | None = None, fhir_permesos: str | None = None,
-               client_fhir: httpx.Client | None = None) -> FastAPI:
+               client_fhir: httpx.Client | None = None, dir_estats: str | Path | None = None) -> FastAPI:
     """font_per_defecte: d'on es llegeix si la petició no porta `source` ("ehr" = el servidor FHIR de
     l'estació; "local" i "remote" queden per als tests i com a exemple d'altres fonts).
     url_fhir: servidor FHIR de l'estació si la petició no porta `iss` / `fhirServer` (per defecte,
     CARDIOALERT_FHIR_URL o http://localhost:5174/fhir). fhir_permesos: expressió regular dels servidors FHIR
     acceptats (per defecte, CARDIOALERT_FHIR_PERMITIDOS o només aquest ordinador). client_fhir: client HTTP
-    per parlar amb l'estació (tests).
+    per parlar amb l'estació (tests). dir_estats: carpeta dels estats de les alertes i del log d'auditoria
+    (per defecte, CARDIOALERT_ESTADOS_DIR o estat_addon/ a l'arrel del repositori).
     remote_factory: funció que retorna el connector remot (pot fallar o trigar: llavors es fa servir
     el local i la resposta porta un avís). remot_public=True: si no es passa cap factory, es fa servir el
     servidor públic de HAPI (FhirRemoteConnector). dades_realista: carpeta CSV de la cohort realista.
@@ -158,6 +174,7 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
                        allow_methods=["GET", "POST"], allow_headers=["*"], expose_headers=["Content-Disposition"])
     app.add_middleware(GZipMiddleware, minimum_size=20_000)  # el cupo realista són uns quants MB de JSON
     store = RulesStore(rules_path)
+    estats = EstatsStore(dir_estats or os.environ.get("CARDIOALERT_ESTADOS_DIR") or DIR_ESTATS)
     local = FhirConnector(dades_locals)
     dades_realista = Path(dades_realista)
     if remote_factory is None and remot_public:
@@ -268,10 +285,10 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
         if font == "ehr":
             url = url_estacio(iss)
             con, info_estacio = cupo_estacio(url, refresca)
-            clau = ("ehr", url, escala)
+            clau, servidor = ("ehr", url, escala), url
         else:
             con, cohort_usada, font_usada, avis = connector(font, cohort)
-            clau = (cohort_usada, font_usada, escala)
+            clau, servidor = (cohort_usada, font_usada, escala), f"{font_usada}:{cohort_usada}"
         with pany:
             av = memoria["avaluacions"].get(clau)
             en_memoria = av is not None
@@ -287,7 +304,7 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
                                  ensure_ascii=False, separators=(",", ":"))[1:-1].encode("utf-8")
                 av = Avaluacio(m, resultats, {r.pacient_id: r for r in resultats}, cos,
                                round(time.perf_counter() - inici, 3),
-                               con.segons_lectura if font == "ehr" else None, info_estacio)
+                               con.segons_lectura if font == "ehr" else None, info_estacio, servidor)
                 memoria["avaluacions"][clau] = av
         if font == "ehr":
             origen = dict(av.estacio)
@@ -299,8 +316,36 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
                       "centre": None, "avis": avis}
         meta = {"font_demanada": font, "cohort_demanada": cohort if font != "ehr" else None, **origen,
                 **_meta_motor(av.motor), "en_memoria": en_memoria, "segons_calcul": av.segons_calcul,
-                "segons_lectura": av.segons_lectura}
+                "segons_lectura": av.segons_lectura, "calculat_a": av.calculat_a}
         return av, meta
+
+    # --- Estat de les alertes i llista «Hoy» ----------------------------------------------------
+
+    def estats_cupo(av: Avaluacio) -> dict:
+        """Estat efectiu de cada pacient amb registre i la llista «Hoy»: els primers N de la llista de treball
+        que estan pendents i tenen alguna alerta que compta. Abans, els pacients amb una alerta nova tornen a
+        pendent (sincronitza)."""
+        config = config_actual()
+        regles = {r.pacient_id: regles_avui(r, config) for r in av.resultats}
+        estats.sincronitza(av.servidor, regles)
+        avui = av.motor.avui
+        efectius = {pid: efectiu(reg, avui) for pid, reg in estats.registres(av.servidor).items() if pid in av.per_id}
+        n = av.motor.motor["prioritat"].get("pacients_avui", 10)
+        llista = []
+        for r in av.resultats:
+            if len(llista) >= n:
+                break
+            if regles[r.pacient_id] and efectius.get(r.pacient_id, {"estat": "pendent"})["estat"] == "pendent":
+                llista.append(r.pacient_id)
+        recompte = Counter(e["estat"] for e in efectius.values())
+        recompte["pendent"] = len(av.resultats) - sum(v for k, v in recompte.items() if k != "pendent")
+        return {"estats": efectius, "llista_avui": llista,
+                "recompte_estats": {k: recompte.get(k, 0) for k in ("pendent", "citat", "revisat", "posposat")}}
+
+    def estat_pacient(servidor: str, r: ResultatPacient, avui) -> dict:
+        """Estat d'un pacient acabat d'avaluar (amb la sincronització d'aquest pacient)."""
+        estats.sincronitza(servidor, {r.pacient_id: regles_avui(r, config_actual())})
+        return efectiu(estats.registre(servidor, r.pacient_id), avui)
 
     def resultat(av: Avaluacio, pacient_id: str) -> ResultatPacient:
         try:
@@ -340,7 +385,60 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
              source: Font | None = q_source, cohort: Cohort = "demo") -> Response:
         av, meta = avaluacio(source, scale, cohort, iss, refresh)
         cap = json.dumps({"meta": meta}, ensure_ascii=False, separators=(",", ":"))[:-1].encode("utf-8")
-        return Response(cap + b"," + av.json_cos + b"}", media_type="application/json")
+        cua = json.dumps(estats_cupo(av), ensure_ascii=False, separators=(",", ":"))[1:].encode("utf-8")
+        return Response(cap + b"," + av.json_cos + b"," + cua, media_type="application/json")
+
+    @app.get("/api/estados")
+    def estados(iss: str | None = q_iss, scale: Escala | None = q_scale, source: Font | None = q_source,
+                cohort: Cohort = "demo") -> dict:
+        """Només l'estat de les alertes i la llista «Hoy» (el cupo ja avaluat no es torna a enviar)."""
+        av, _ = avaluacio(source, scale, cohort, iss)
+        return {"calculat_a": av.calculat_a, **estats_cupo(av)}
+
+    def resultat_actual(pacient_id: str, iss: str | None, scale: Escala | None, source: Font | None,
+                        cohort: Cohort) -> tuple[str, ResultatPacient, RiskEngine]:
+        """(clau dels estats, resultat del pacient ara mateix, motor). Amb l'estació, el pacient es llegeix ara."""
+        if (source or font_per_defecte) == "ehr":
+            url = url_estacio(iss)
+            m = RiskEngine(estacio(url), config_actual(), escala=scale)
+            return url, m.avalua_dades(pacient_estacio(url, pacient_id)), m
+        av, _ = avaluacio(source, scale, cohort)
+        return av.servidor, resultat(av, pacient_id), av.motor
+
+    def servidor_estats(iss: str | None, source: Font | None, cohort: Cohort) -> str:
+        if (source or font_per_defecte) == "ehr":
+            return url_estacio(iss)
+        return avaluacio(source, None, cohort)[0].servidor
+
+    @app.post("/api/pacientes/{pacient_id}/estado")
+    def canvia_estat(pacient_id: str, cos: dict = Body(..., examples=[{
+            "estat": "posposat", "fins": "2026-12-15",
+            "professional": {"id": "Practitioner/sim-0001", "nom": "Dra. Carmen Soler", "rol": "Medicina de familia"}}]),
+            iss: str | None = q_iss, scale: Escala | None = q_scale, source: Font | None = q_source,
+            cohort: Cohort = "demo") -> dict:
+        """Estat de l'alerta d'un pacient: pendent | citat | revisat | posposat (amb `fins`). `professional` és el
+        del context de llançament de l'estació; el canvi queda al log d'auditoria d'aquest servidor FHIR."""
+        servidor, res, m = resultat_actual(pacient_id, iss, scale, source, cohort)
+        regles = regles_avui(res, config_actual())
+        estats.sincronitza(servidor, {pacient_id: regles})
+        try:
+            nou = estats.canvia(servidor, pacient_id, cos.get("estat"), cos.get("professional"), regles, m.avui,
+                                cos.get("fins"))
+        except ErrorEstat as exc:
+            raise HTTPException(422, str(exc)) from None
+        return {"pacient_id": pacient_id, "estat": nou, "auditoria": estats.auditoria(servidor, pacient_id, 20)}
+
+    @app.get("/api/pacientes/{pacient_id}/auditoria")
+    def auditoria_pacient(pacient_id: str, iss: str | None = q_iss, source: Font | None = q_source,
+                          cohort: Cohort = "demo") -> dict:
+        return {"pacient_id": pacient_id, "auditoria": estats.auditoria(servidor_estats(iss, source, cohort), pacient_id)}
+
+    @app.get("/api/auditoria")
+    def auditoria(iss: str | None = q_iss, source: Font | None = q_source, cohort: Cohort = "demo",
+                  limit: int = Query(200, ge=1, le=10_000)) -> dict:
+        """Log d'auditoria dels canvis d'estat d'aquest servidor FHIR (el més recent primer)."""
+        servidor = servidor_estats(iss, source, cohort)
+        return {"servidor": servidor, "auditoria": estats.auditoria(servidor, limit=limit)}
 
     @app.get("/api/pacientes/{pacient_id}")
     def pacient(pacient_id: str, iss: str | None = q_iss, scale: Escala | None = q_scale,
@@ -359,14 +457,18 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             res = m.avalua_dades(d)
             meta = {"font_demanada": "ehr", "cohort_demanada": None, **origen, **_meta_motor(m), "en_memoria": False,
                     "segons_calcul": round(time.perf_counter() - inici, 3), "segons_lectura": None}
+            servidor = url
         else:
             av, meta = avaluacio(source, scale, cohort)
             res = resultat(av, pacient_id)
             m = av.motor
             d = m.connector.get_patient_data(pacient_id)
+            servidor = av.servidor
         return {
             "meta": meta,
             "pacient": res.to_dict(),
+            "estat": estat_pacient(servidor, res, m.avui),
+            "auditoria": estats.auditoria(servidor, pacient_id, 20),
             "diagnostics": d.diagnostics,
             "medicacions": d.medicacions,
             "analitiques": d.analitiques,  # històric complet, cada registre amb el seu origen

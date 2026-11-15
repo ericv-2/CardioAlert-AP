@@ -1,7 +1,17 @@
 import { ArrowLeftRight, CircleAlert, LoaderCircle, RotateCw } from "lucide-react";
-import { CATEGORIA_CV, KDIGO } from "../format.js";
+import { CATEGORIA_CV, ESTADOS, KDIGO, textoEstado } from "../format.js";
 
 const CHIP = "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset";
+
+// Estado de la alerta del paciente («Pendiente», «Citado», «Revisado», «Pospuesto hasta …»).
+export function EstadoChip({ estado }) {
+  const e = estado ?? { estat: "pendent" };
+  return (
+    <span className={`${CHIP} ${ESTADOS[e.estat]?.clase ?? ESTADOS.pendent.clase}`} title={e.qui ? `Último cambio: ${e.qui}` : undefined}>
+      {textoEstado(e)}
+    </span>
+  );
+}
 
 // Nivel de riesgo CV: la categoría de la tabla 5 (ESC 2021) o, si no la hay, el motivo ("Faltan datos…").
 export function RiesgoCvChip({ p, prefijo = "" }) {

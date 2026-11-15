@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarCheck, ChevronRight, CircleCheck, FlaskConical, HeartPulse, Search, Siren, Users, X } from "lucide-react";
-import { ALERTA_CORTA, GRUPO_CORTO, lista, num, pct, SEXO } from "../format.js";
-import { Cargando, CruzadoBadge, ErrorPanel, GrupoTag, KdigoTag, RiesgoCvChip } from "./ui.jsx";
+import { ALERTA_CORTA, ESTADOS, GRUPO_CORTO, lista, num, pct, SEXO } from "../format.js";
+import { Cargando, CruzadoBadge, ErrorPanel, EstadoChip, GrupoTag, KdigoTag, RiesgoCvChip } from "./ui.jsx";
 
 const POR_PAGINA = 100; // filas que se pintan de golpe (el cupo realista tiene 1.500 pacientes)
 
@@ -64,7 +64,7 @@ function RiesgoCv({ p }) {
   );
 }
 
-function Hoy({ pacientes }) {
+function Hoy({ pacientes, fuera }) {
   return (
     <section className="rounded-lg border border-clinic-500 bg-white shadow-xs" aria-label="Pacientes prioritarios de hoy">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line bg-clinic-50 px-4 py-2.5">
@@ -73,9 +73,11 @@ function Hoy({ pacientes }) {
           Hoy: {pacientes.length} pacientes prioritarios
         </h2>
         <p className="text-xs text-muted">
-          Los primeros de la lista de trabajo: alertas urgentes, después riesgo muy alto y alto sin tratamiento adecuado.
+          Los primeros pendientes de la lista de trabajo: alertas urgentes, después riesgo muy alto y alto sin tratamiento adecuado.
+          {fuera > 0 && ` ${num(fuera)} pacientes citados, revisados o pospuestos no aparecen aquí (filtro «Estado» de la lista).`}
         </p>
       </div>
+      {pacientes.length === 0 && <p className="px-4 py-4 text-sm text-muted">No quedan pacientes prioritarios pendientes.</p>}
       <ol className="grid gap-x-6 sm:grid-cols-2">
         {pacientes.map((p, i) => {
           const alerta = p.alertes_actives.find((a) => a.regla === p.alerta_principal);
@@ -107,30 +109,38 @@ function Hoy({ pacientes }) {
   );
 }
 
-export default function CupoView({ cupo, onRetry, filtro, onFiltro, busqueda, onBusqueda }) {
+export default function CupoView({ cupo, onRetry, filtro, onFiltro, busqueda, onBusqueda, filtroEstado, onFiltroEstado }) {
   const { data, loading, error } = cupo;
   const pacientes = data?.pacients ?? [];
+  const estados = data?.estats ?? {};
   const [limite, setLimite] = useState(POR_PAGINA);
   const visibles = useMemo(() => {
     const q = sinAcentos(busqueda.trim());
     return pacientes.filter(
-      (p) => (filtro === "TODOS" || String(p.grup_ordre) === filtro) && (!q || sinAcentos(`${p.nom} ${p.pacient_id}`).includes(q)),
+      (p) =>
+        (filtro === "TODOS" || String(p.grup_ordre) === filtro) &&
+        (filtroEstado === "TODOS" || (estados[p.pacient_id]?.estat ?? "pendent") === filtroEstado) &&
+        (!q || sinAcentos(`${p.nom} ${p.pacient_id}`).includes(q)),
     );
-  }, [pacientes, filtro, busqueda]);
-  useEffect(() => setLimite(POR_PAGINA), [filtro, busqueda, data]);
+  }, [pacientes, estados, filtro, filtroEstado, busqueda]);
+  useEffect(() => setLimite(POR_PAGINA), [filtro, filtroEstado, busqueda, data]);
+  const porId = useMemo(() => new Map(pacientes.map((p, i) => [p.pacient_id, { p, n: i + 1 }])), [pacientes]);
 
   if (error) return <ErrorPanel mensaje={error} onRetry={onRetry} />;
   if (!data) return <Cargando texto="Leyendo el cupo de la estación clínica y calculando…" />;
 
   const k = data.kpis;
   const filtros = [{ id: "TODOS", texto: "Todos", n: k.total }, ...Object.keys(k.grups).map((g) => ({ id: g, texto: GRUPO_CORTO[g], n: k.grups[g] }))];
-  const hoy = pacientes.slice(0, data.meta.pacients_avui);
+  const hoy = (data.llista_avui ?? []).map((pid) => porId.get(pid)?.p).filter(Boolean);
+  const recuento = data.recompte_estats ?? {};
+  const fuera = (recuento.citat ?? 0) + (recuento.revisat ?? 0) + (recuento.posposat ?? 0);
+  const filtrosEstado = [{ id: "TODOS", texto: "Todos" }, ...Object.entries(ESTADOS).map(([id, e]) => ({ id, texto: e.texto, n: recuento[id] }))];
   const pintados = visibles.slice(0, limite);
   const urgentes = lista((data.meta.alertes_urgents ?? []).map((r) => ALERTA_CORTA[r] ?? r)).replace(/^./, (c) => c.toUpperCase());
 
   return (
     <div className={`space-y-5 transition-opacity ${loading ? "opacity-60" : ""}`}>
-      {hoy.length > 0 && <Hoy pacientes={hoy} />}
+      <Hoy pacientes={hoy} fuera={fuera} />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Indicadores del cupo">
         <Kpi
@@ -184,6 +194,21 @@ export default function CupoView({ cupo, onRetry, filtro, onFiltro, busqueda, on
               </button>
             ))}
           </div>
+          <label className="flex items-center gap-2 text-sm text-muted">
+            Estado
+            <select
+              value={filtroEstado}
+              onChange={(e) => onFiltroEstado(e.target.value)}
+              className="h-9 rounded-md border border-line bg-white px-2 text-sm text-ink"
+            >
+              {filtrosEstado.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.texto}
+                  {f.n != null ? ` (${num(f.n)})` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="relative ml-auto w-full sm:w-72">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden="true" />
             <input
@@ -228,7 +253,7 @@ export default function CupoView({ cupo, onRetry, filtro, onFiltro, busqueda, on
                   onClick={() => (window.location.hash = `#/paciente/${p.pacient_id}`)}
                   className="cursor-pointer border-b border-line align-top last:border-b-0 hover:bg-clinic-50"
                 >
-                  <td className="tabular px-4 py-3 text-sm text-muted">{pacientes.indexOf(p) + 1}</td>
+                  <td className="tabular px-4 py-3 text-sm text-muted">{porId.get(p.pacient_id)?.n}</td>
                   <td className="px-3 py-3">
                     <a
                       href={`#/paciente/${p.pacient_id}`}
@@ -243,6 +268,11 @@ export default function CupoView({ cupo, onRetry, filtro, onFiltro, busqueda, on
                     <p className="mt-1">
                       <GrupoTag p={p} />
                     </p>
+                    {estados[p.pacient_id] && estados[p.pacient_id].estat !== "pendent" && (
+                      <p className="mt-1">
+                        <EstadoChip estado={estados[p.pacient_id]} />
+                      </p>
+                    )}
                     {p.dades_creuades && (
                       <p className="mt-1">
                         <CruzadoBadge fuentes={p.fonts_dades} />
