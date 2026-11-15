@@ -71,7 +71,9 @@ def comunitat_habitual(d: DadesPacient) -> str | None:
 def _summary(res: ResultatPacient) -> str:
     if res.alertes_actives:
         mes = len(res.alertes_actives) - 1
-        text = res.alertes_actives[0].titol
+        # L'alerta principal (la urgent, si n'hi ha): la mateixa que encapçala el resum i la llista
+        principal = next((a for a in res.alertes_actives if a.regla == res.alerta_principal), res.alertes_actives[0])
+        text = principal.titol
         text += f" (+{mes} {'alerta' if mes == 1 else 'alertas'})" if mes else ""
     else:
         text = res.resum

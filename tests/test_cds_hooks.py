@@ -125,3 +125,9 @@ def test_el_servei_no_toca_el_motor():
     """El servei CDS només tradueix el resultat del motor: res de CDS Hooks dins d'engine/."""
     engine = Path(__file__).resolve().parent.parent / "engine"
     assert not any("cds_hooks" in f.read_text(encoding="utf-8") for f in engine.glob("*.py"))
+
+
+def test_el_summary_l_encapcala_l_alerta_principal(client):
+    """Amb una alerta urgent (P004: pèrdua ràpida de FGe), la targeta és critical i el summary la porta davant."""
+    card = client.post(URL, json=peticio("P004")).json()["cards"][0]
+    assert card["indicator"] == "critical" and card["summary"].startswith("Pérdida rápida de filtrado glomerular")

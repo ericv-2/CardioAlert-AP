@@ -416,3 +416,36 @@ avaluar les regles: només els últims anys de cada prova que fan servir les reg
   demanar-li només aquestes dates (`Patient/{id}/$everything?start=` o `_typeFilter` a l'exportació Bulk
   Data), perquè les dades antigues ni tan sols surtin de l'estació. El servidor del simulador encara no ho
   admet.
+
+## 16. Estat de les alertes, «Hoy», proves pendents i recàlcul (15/11/2026)
+
+- **«Hoy» a dalt de la pàgina principal.** Els N primers de la llista de treball (`motor.prioritat.pacients_avui`,
+  editable a la Vista 3) que estan pendents i tenen alguna alerta que compta. `fge_descens` passa a
+  `alertes_urgents` (validat pel metge): P002 i P004 pugen al grup 1. Grups de la cohort demo: 10 / 26 / 24 / 40
+  (abans 8 / 26 / 25 / 41); realista: 42 / 216 / 325 / 917 (abans 28 / 224 / 331 / 917). Cap alerta,
+  categoria de risc, valor de risc ni KDIGO ha canviat: només el grup i la puntuació.
+- **Estat de l'alerta per pacient.** "Pendiente" (sense registre), "Citado", "Revisado" i "Pospuesto hasta
+  <data>". Els tres últims surten de «Hoy» però continuen al cupo (filtre «Estado» de la llista). És l'única
+  cosa que desa l'add-on: `api/estats.py` escriu `estat_addon/<servidor>/estats.json` (escriptura atòmica) i
+  `auditoria.jsonl` (només s'hi afegeix), **separat per servidor FHIR**, que simula l'emmagatzematge dins de la
+  infraestructura de Salut. No són dades clíniques de l'estació sinó el que el professional ha fet amb cada alerta.
+- **Qui fa el canvi.** El professional del context de llançament (`launch.practitioner` i `fhirUser`). Sense
+  llançament la interfície no deixa canviar l'estat i l'API respon 422 si no arriba el professional: un canvi
+  sense autor no es pot auditar. En producció vindria del token SMART, no del cos de la petició.
+- **Alerta nova -> "Pendiente".** Cada registre guarda les alertes que tenia el pacient en canviar l'estat. Si
+  un recàlcul (cupo, fitxa o `recalcular`) en porta una que no hi era, l'estat torna a "Pendiente" i el log
+  ho registra amb "CardioAlert AP (recálculo automático)" com a autor i la regla nova com a motiu. Una
+  posposició arriba a la data (de referència del motor) i torna a comptar com a pendent sense esborrar-se.
+- **Proves pendents.** `uacr_falta` i `creatinina_falta` (`motor.prioritat.alertes_fora_avui`) continuen sent
+  alertes, però no sumen punts, no fan entrar ningú a «Hoy» ni tornen un pacient a "Pendiente" i no
+  encapçalen el resum si n'hi ha una altra. Es resolen de cop des de la vista «Pruebas pendientes»
+  (prova, última determinació i des de quan), que s'exporta com a petició conjunta en CSV o Excel.
+- **Recàlcul.** La capçalera mostra l'hora de l'últim càlcul del cupo. `POST /api/pacientes/{id}/recalcular`
+  torna a llegir el pacient (`$everything`), el substitueix al cupo en memòria de totes les escales d'aquest
+  servidor (la llista es reordena) sense tornar a exportar el cupo, i retorna les alertes noves i resoltes.
+  Simula l'arribada d'una analítica nova: en producció ho dispararia una notificació de l'estació (p. ex. una
+  subscripció FHIR). Les dades del simulador són fixes, de manera que a la demo el recàlcul dona el mateix
+  resultat; el test ho prova afegint un NT-proBNP a l'estació simulada.
+- **Targeta CDS.** El `summary` l'encapçala `alerta_principal` (la urgent, si n'hi ha), com el resum i la
+  llista; abans era la primera alerta de la llista i amb `fge_descens` urgent la targeta sortia "critical"
+  amb un títol no urgent.

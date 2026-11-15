@@ -79,6 +79,35 @@ El sistema debe cruzar automáticamente variables y tendencias, no solo valores 
 - **Tiempos medidos (15/11/2026):** cupo realista desde la estación ~1,6 s en la API (1,1 s de Bulk Data,
   32 MB de NDJSON) y ~2 s en el navegador; después 0,04 s (memoria). Demo 0,1 s. Ficha y tarjeta < 10 ms.
 
+### Estado de las alertas, «Hoy», pruebas pendientes y recálculo (docs/decisions.md §16)
+- **Lo único que guarda el add-on** es el estado de la alerta de cada paciente y su log de auditoría, en
+  ficheros locales separados por servidor FHIR (`estat_addon/<servidor>/estats.json` y `auditoria.jsonl`; no
+  versionado; `CARDIOALERT_ESTADOS_DIR` lo cambia, los tests usan una carpeta temporal vía `tests/conftest.py`).
+  Simula el almacenamiento dentro de la infraestructura de Salud. `api/estats.py` (`EstatsStore`).
+- **Estados:** "Pendiente" (sin registro), "Citado", "Revisado", "Pospuesto hasta <fecha>" (posterior a la
+  fecha de referencia; al llegar la fecha vuelve a contar como pendiente). Cada cambio se registra con el
+  profesional del contexto de lanzamiento (`launch.practitioner`); sin lanzamiento la interfaz no deja
+  cambiar el estado. Si un recálculo trae una alerta que no estaba al cambiar el estado, vuelve a "Pendiente"
+  y queda en el log con "CardioAlert AP (recálculo automático)" como autor.
+- **«Hoy»** (`llista_avui` en `/api/cupo` y `/api/estados`): los N primeros de la lista de trabajo
+  (`motor.prioritat.pacients_avui`) que están pendientes y tienen alguna alerta que cuenta. Citados, revisados
+  y pospuestos salen de «Hoy» pero siguen en el cupo (filtro «Estado» de la lista).
+- **Pruebas pendientes** (`#/pruebas`): `uacr_falta` y `creatinina_falta` (`motor.prioritat.alertes_fora_avui`)
+  no suman puntos, no hacen entrar a nadie en «Hoy» ni devuelven a "Pendiente"; se listan con la prueba y desde
+  cuándo (`ResultatPacient.proves_pendents`) y se exportan como petición conjunta en CSV (`;`, UTF-8 con BOM)
+  o Excel (`engine/export_proves.py`).
+- **Recálculo:** la cabecera muestra "Último cálculo del cupo" (`meta.calculat_a`). `POST
+  /api/pacientes/{id}/recalcular` vuelve a leer un paciente de la estación (simula la llegada de una analítica
+  nueva), lo sustituye en el cupo en memoria (la lista se reordena, sin volver a exportar) y devuelve las
+  alertas nuevas y resueltas. Botón "Recalcular paciente" en la ficha.
+- **Finestra de datos (minimización, art. 5.1.c RGPD; decisions.md §15):** `motor.finestra_dades` en
+  rules.yaml: años de cada prueba que usa el motor (creatinina y UACR 5, NT-proBNP 4, PA, lípidos y potasio 3,
+  HbA1c 2; FGe informado, glucosa, triglicéridos e IMC 0 = no se usan). `RiskEngine.minimitza()`; la ficha
+  tampoco devuelve nada fuera de la ventana. Son las mínimas que no cambian ningún resultado (test).
+- **Recuentos (15/11/2026):** demo: «Hoy» 10, pruebas pendientes 18 pacientes (26 pruebas), grupos
+  10 / 26 / 24 / 40. Realista: «Hoy» 10, pruebas pendientes 442 pacientes (570 pruebas), grupos
+  42 / 216 / 325 / 917.
+
 ### Estructura
 ```
 connectors/   Capa de datos. base.py (interfaz Connector: get_patients, get_patient_data),
@@ -101,7 +130,9 @@ simulador/datos/demo/      DATOS DE LA ESTACIÓN. fhir/ (un bundle FHIR R4 por p
 simulador/datos/realista/  cohorte realista (1.500 pacientes R0001-R1500, nunca al servidor público): fhir/,
               csv/ y veritat.csv (lo que el generador "sabe" de cada paciente). Parámetros en
               config/cohort_realista.yaml.
-tests/        test_fhir_ehr.py (el add-on lee de la estación: conector fhir_ehr, fhirServer, prefetch, iss,
+tests/        test_estats.py (estados, «Hoy», auditoría, alerta nueva y recálculo), test_proves_pendents.py,
+              test_finestra.py (minimización), conftest.py (estados en carpeta temporal),
+              test_fhir_ehr.py (el add-on lee de la estación: conector fhir_ehr, fhirServer, prefetch, iss,
               Bulk Data, memoria por servidor; con una estación simulada y con el servidor Node real del
               simulador; resultados idénticos a los de los ficheros),
               test_cohort_realista.py (prevalencias objetivo y coherencia de la cohorte realista),
@@ -113,13 +144,17 @@ docs/         dades_sintetiques.md (criterios de generación), decisions.md (dec
 api/          ADD-ON. main.py (FastAPI + CORS: /api/cupo, /api/pacientes/{id}, /api/export/excel, /api/rules y el
               servicio CDS Hooks /cds-services; lee de la estación por `iss` / `fhirServer` y guarda el cupo
               en memoria por servidor FHIR), cds_hooks.py (traduce un ResultatPacient a una tarjeta CDS y
-              anuncia el prefetch y la interfaz del add-on en el discovery) y rules_store.py (edición validada
-              de rules.yaml: lista blanca, rangos, copia en config/backups/).
+              anuncia el prefetch y la interfaz del add-on en el discovery), estats.py (estado de las alertas
+              y log de auditoría por servidor FHIR) y rules_store.py (edición validada
+              de rules.yaml: lista blanca, rangos, copia en config/backups/). Endpoints nuevos: /api/estados,
+              POST /api/pacientes/{id}/estado, /api/pacientes/{id}/auditoria, /api/auditoria,
+              POST /api/pacientes/{id}/recalcular, /api/pruebas-pendientes y /api/export/pruebas-pendientes.
 frontend/     ADD-ON: su interfaz (React + Vite + Tailwind + Lucide, puerto 5173). src/App.jsx (rutas por hash),
               src/launch.js (`iss` y contexto de lanzamiento desde una estación clínica), src/api.js (reenvía
               el `iss` a la API), src/components/: Header ("Datos de: …" y botón "Actualizar"; SIN selectores),
-              CupoView (Vista 1, con "Hoy"), PatientView + RenalChart + NoteModal (Vista 2), RulesView
-              (Vista 3). Sin lógica clínica: todo viene de la API. Ya NO contiene la estación.
+              CupoView (Vista 1, con "Hoy" arriba y filtro «Estado»), PatientView + RenalChart + NoteModal +
+              EstadoPanel (Vista 2), PruebasView (#/pruebas), RulesView (Vista 3). Sin lógica clínica: todo viene
+              de la API. Ya NO contiene la estación.
 simulador/    SIMULADOR: estación clínica simulada (React + Vite + Tailwind, puerto 5174), aplicación aparte con
               su propio package.json. datos/ (las dos cohortes). servidor-fhir.js (servidor FHIR R4 de solo
               lectura, sin dependencias: plugin de Vite en /fhir y también `node servidor-fhir.js --port N`;
@@ -130,6 +165,7 @@ simulador/    SIMULADOR: estación clínica simulada (React + Vite + Tailwind, p
               (Configuración → Integraciones), PanelCds, ModalAddon (iframe con el add-on).
 start_addon / start_simulador / start_demo (.bat y .sh)   scripts de arranque (ver Comandos).
 exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no versionado).
+estat_addon/  estados de las alertas y log de auditoría del add-on, por servidor FHIR (no versionado).
 ```
 
 ### Comandos
@@ -140,7 +176,7 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
 - `python scripts/generate_patients.py --perfil realista --n 1500` regenera la cohorte realista en
   simulador/datos/realista (determinista; opciones `--mrc-sense-dx`, `--prevalenca-ic`, `--llavor`,
   `--sortida`). NO subirla al servidor FHIR público. Tras regenerar, reiniciar la estación (índice en memoria).
-- `python -m pytest` ejecuta los tests (182; `test_fhir_ehr.py` arranca el servidor FHIR del simulador con
+- `python -m pytest` ejecuta los tests (203; `test_fhir_ehr.py` arranca el servidor FHIR del simulador con
   Node y se salta esa prueba si no hay Node).
 - `python -m engine` resume el cupo priorizado; `python -m engine P003` imprime la nota clínica de un paciente;
   `python -m engine --excel` escribe `exports/cupo_evaluado.xlsx`; `--escala regicor` cambia la calculadora.
@@ -187,7 +223,8 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   `risc_cv_percentatge`, `categoria_risc_cv`, `rang_referencia_cv`, `alertes_actives` (`Alerta`: regla, motiu,
   evidencia "Clase X - ESC/ERA 2026", pes, fonts), `accions_recomanades` (`Accio` con `nota` anti-inercia),
   `avisos`, `ben_tractat`, `objectius_pendents`, `resum` (1 línea), `fonts_dades`, `dades_creuades`,
-  `nota_clinica_auto` y `volant_auto` (volante; vacío si no hay nada que pedir).
+  `nota_clinica_auto`, `volant_auto` (volante; vacío si no hay nada que pedir) y `proves_pendents`.
+  `minimitza(d)` aplica la ventana de datos y `clau_ordre(r)` es el orden de la lista.
 - `export_excel.py`: libro con hojas Cupo (todas las columnas, textos enteros), Alertas y Resumen.
 - `renal.py`: funciones puras — categorías y matriz KDIGO, cronicidad (>= 2 medidas separadas >= 3 meses),
   pendiente del FGe (regresión lineal), caída aguda (FRA) y KFRE de 4 variables.
@@ -199,7 +236,8 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   (sección `motor`). `ben_tractat` es el control positivo: con RCV alto pero tratamiento y objetivos
   correctos NO se alerta. Las oportunidades terapéuticas (iSGLT2, IECA/ARA-II, estatina, PA, finerenona,
   arGLP-1) generan acciones, no alertas.
-- `puntuacio_prioritat` = suma de `pes` de las alertas + peso KDIGO (máx. 100); solo ordena dentro de cada grupo.
+- `puntuacio_prioritat` = suma de `pes` de las alertas (salvo `alertes_fora_avui`) + peso KDIGO (máx. 100);
+  solo ordena dentro de cada grupo. La tarjeta CDS y el resumen los encabeza `alerta_principal` (la urgente).
 - Textos de salida (alertas, acciones, nota) en castellano; cero umbrales en el código.
 - Coeficientes de SCORE2/SCORE2-OP/SCORE2-Diabetes/CKD Add-on contrastados con el paquete R RiskScorescvd;
   los de REGICOR y KFRE y las clases de evidencia de `rules.yaml` están pendientes de verificar con el médico.
@@ -212,21 +250,22 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   hipercolesterolemia 32%, fumadores 32,3%; global 14 / 40 / 43 / 24%, IMC 27,2) y ENRICA (ERC 4,8% / 17,4% /
   37,3% por edad; hombres 23,1%, mujeres 7,3%); 2/3 de las ERC sin diagnóstico. La ERC global sale 17,5% (no
   15,1%) porque se priorizan las tasas por edad con una pirámide actual. Resultado del motor: 406
-  Bajo-moderado / 340 Alto / 246 Muy alto / 456 menores de 40 / 52 "Faltan datos"; grupos 28 / 224 / 331 / 917;
+  Bajo-moderado / 340 Alto / 246 Muy alto / 456 menores de 40 / 52 "Faltan datos"; grupos 42 / 216 / 325 / 917;
   detecta 129 de 175 ERC sin diagnosticar. Es un cupo de la estación: se activa en "Configuración → Cupo /
   centro" y el add-on lo lee por Bulk Data (la web del add-on ya NO elige cohorte). `cohort=demo|realista` y
   `GET /api/cohorts` quedan solo para `source=local` (tests). Nunca se sube al servidor FHIR público.
 - **Guía ESC 2021 (tabla 5, figuras 3 y 6; detalle en docs/decisions.md §11):** el único nivel de riesgo que
   se muestra es "Bajo-moderado" / "Alto" / "Muy alto" (`categoria_risc_cv`); NO existen ALT/MITJA/BAIX.
-  Orden de la lista: 1) alertas urgentes (`possible_ic`, `possible_fra`, `derivacio_nefrologia`), 2) "Muy alto"
-  sin tratamiento adecuado, 3) "Alto" sin tratamiento adecuado, 4) resto; dentro, por puntuación. Bloque
-  "Hoy: N pacientes prioritarios" (`motor.prioritat.pacients_avui`). Alerta de RCV: 35 puntos "Muy alto", 20
+  Orden de la lista: 1) alertas urgentes (`possible_ic`, `possible_fra`, `derivacio_nefrologia` y, validado
+  por el médico el 15/11/2026, `fge_descens`), 2) "Muy alto" sin tratamiento adecuado, 3) "Alto" sin
+  tratamiento adecuado, 4) resto; dentro, por puntuación (sin contar las pruebas pendientes). Bloque
+  "Hoy: N pacientes prioritarios" arriba de la página principal (`motor.prioritat.pacients_avui`). Alerta de RCV: 35 puntos "Muy alto", 20
   "Alto" (`risc_cardiovascular.alertes`, editables en la Vista 3), texto propio para >= 70 años aparentemente
   sanos (clase IIb). < 40 años: "Escala SCORE2 no aplicable (<40 años)" y solo reglas renales y pruebas
   pendientes. Sin PAS, colesterol total o HDL: "Faltan datos para calcular el riesgo" + acción. Objetivos de
   tratamiento escalonados: paso 1 (criterio de `ben_tractat`) PAS < 140 y LDL < 100; paso 2 (acción, no
   alerta) PAS < 130 si se tolera y LDL < 70 / < 55 (por eso P007, LDL 68, sigue sin alertas).
-  Cohorte demo: 35 Bajo-moderado / 31 Alto / 34 Muy alto; grupos 8 / 26 / 25 / 41.
+  Cohorte demo: 35 Bajo-moderado / 31 Alto / 34 Muy alto; grupos 10 / 26 / 24 / 40.
 - **Escala de riesgo CV:** `risc_cardiovascular.escala_per_defecte: totes_dues | score2 | regicor` (por defecto
   `totes_dues`: escala ESC + REGICOR solo como referencia, sin reclasificar; calibración de país de riesgo bajo).
   `score2` es el modo ESC automático: DM2 de 40-69 años -> SCORE2-Diabetes; >= 70 años -> SCORE2-OP;
