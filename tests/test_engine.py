@@ -281,8 +281,9 @@ def test_cupo_ordenat_i_auditable(motor):
     # Ordre de la llista de treball: per grup i, dins de cada grup, per puntuació del motor
     ordre = [(r.grup_ordre, -r.puntuacio_prioritat) for r in cupo]
     assert ordre == sorted(ordre) and all(0 <= r.puntuacio_prioritat <= 100 for r in cupo)
-    urgents = {"possible_ic", "possible_fra", "derivacio_nefrologia"}
-    cita = re.compile(r"^Clase (I|IIa|IIb|III) - (ESC/ERA 2026|ESC 2021)$")
+    urgents = set(motor.motor["prioritat"]["alertes_urgents"])
+    assert urgents == {"possible_ic", "possible_fra", "derivacio_nefrologia", "fge_descens"}
+    cita =re.compile(r"^Clase (I|IIa|IIb|III) - (ESC/ERA 2026|ESC 2021)$")
     for r in cupo:
         assert "nivell_risc" not in r.to_dict()  # cap classificació ALT/MITJA/BAIX
         assert r.categoria_risc_cv in ("Bajo-moderado", "Alto", "Muy alto") and r.text_risc_cv == r.categoria_risc_cv

@@ -158,5 +158,6 @@ motor:
     kdigo: {verd: 0, groc: 3, taronja: 8, vermell: 15}
     # Ordre de la llista de treball (NO és una classificació de risc): 1) alertes urgents, 2) risc "Muy alto"
     # sense tractament adequat, 3) risc "Alto" sense tractament, 4) la resta; dins de cada grup, per puntuació.
-    alertes_urgents: [possible_ic, possible_fra, derivacio_nefrologia]
+    # fge_descens (pèrdua ràpida de FGe) és urgent per decisió del metge (validat el 15/11/2026)
+    alertes_urgents: [possible_ic, possible_fra, derivacio_nefrologia, fge_descens]
     pacients_avui: 10                 # mida del bloc "Hoy: N pacientes prioritarios"

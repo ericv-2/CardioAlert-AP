@@ -103,6 +103,7 @@ def _meta_motor(m: RiskEngine) -> dict:
     return {"escala": m.escala, "data_referencia": m.avui.isoformat(), "guia": m.motor["guia"],
             "guia_risc_cv": m.regles["risc_cardiovascular"].get("guia"),
             "pacients_avui": m.motor["prioritat"].get("pacients_avui", 10),
+            "alertes_urgents": m.motor["prioritat"].get("alertes_urgents", []),
             "grups_ordre": GRUPS_ORDRE,
             "equacio_fge": NOM_EQUACIO.get(m.nom_equacio, m.nom_equacio)}
 

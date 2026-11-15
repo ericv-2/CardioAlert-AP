@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarCheck, ChevronRight, CircleCheck, FlaskConical, HeartPulse, Search, Siren, Users, X } from "lucide-react";
-import { GRUPO_CORTO, num, pct, SEXO } from "../format.js";
+import { ALERTA_CORTA, GRUPO_CORTO, lista, num, pct, SEXO } from "../format.js";
 import { Cargando, CruzadoBadge, ErrorPanel, GrupoTag, KdigoTag, RiesgoCvChip } from "./ui.jsx";
 
 const POR_PAGINA = 100; // filas que se pintan de golpe (el cupo realista tiene 1.500 pacientes)
@@ -126,9 +126,12 @@ export default function CupoView({ cupo, onRetry, filtro, onFiltro, busqueda, on
   const filtros = [{ id: "TODOS", texto: "Todos", n: k.total }, ...Object.keys(k.grups).map((g) => ({ id: g, texto: GRUPO_CORTO[g], n: k.grups[g] }))];
   const hoy = pacientes.slice(0, data.meta.pacients_avui);
   const pintados = visibles.slice(0, limite);
+  const urgentes = lista((data.meta.alertes_urgents ?? []).map((r) => ALERTA_CORTA[r] ?? r)).replace(/^./, (c) => c.toUpperCase());
 
   return (
     <div className={`space-y-5 transition-opacity ${loading ? "opacity-60" : ""}`}>
+      {hoy.length > 0 && <Hoy pacientes={hoy} />}
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Indicadores del cupo">
         <Kpi
           icon={Users}
@@ -142,7 +145,7 @@ export default function CupoView({ cupo, onRetry, filtro, onFiltro, busqueda, on
           tono="bg-red-50 text-red-700"
           titulo="Alertas clínicas urgentes"
           valor={num(k.grups[1])}
-          detalle={`Posible IC, posible FRA o derivación a Nefrología · ${num(k.alertes)} alertas activas en total`}
+          detalle={`${urgentes} · ${num(k.alertes)} alertas activas en total`}
         />
         <Kpi
           icon={HeartPulse}
@@ -161,8 +164,6 @@ export default function CupoView({ cupo, onRetry, filtro, onFiltro, busqueda, on
           detalle={`${num(k.mrc_no_diagnosticada)} con criterios de ERC sin diagnóstico · ${num(k.ben_tractats)} bien tratados (sin alerta)`}
         />
       </section>
-
-      {hoy.length > 0 && <Hoy pacientes={hoy} />}
 
       <section className="rounded-lg border border-line bg-white shadow-xs" aria-label="Lista de trabajo">
         <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3">

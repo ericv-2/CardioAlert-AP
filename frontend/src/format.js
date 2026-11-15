@@ -29,6 +29,16 @@ export const CATEGORIA_CV = {
 // Grupos del orden de la lista de trabajo (no son una clasificación de riesgo): texto corto para filtros.
 export const GRUPO_CORTO = { 1: "Alertas urgentes", 2: "Muy alto sin tratar", 3: "Alto sin tratar", 4: "Resto" };
 
+// Nombre corto de las alertas que pueden ser urgentes (la lista sale de rules.yaml: meta.alertes_urgents).
+export const ALERTA_CORTA = {
+  possible_ic: "posible IC",
+  possible_fra: "posible FRA",
+  derivacio_nefrologia: "derivación a Nefrología",
+  fge_descens: "pérdida rápida de FGe",
+};
+
+export const lista = (textos) => (textos.length < 2 ? textos.join("") : `${textos.slice(0, -1).join(", ")} o ${textos.at(-1)}`);
+
 export const KDIGO = {
   verd: { dot: "bg-emerald-600", texto: "riesgo bajo" },
   groc: { dot: "bg-yellow-400", texto: "riesgo moderado" },
