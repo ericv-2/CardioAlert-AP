@@ -1,4 +1,4 @@
-# Proyecto: CardioAlert AP (Hackathon Boehringer Ingelheim - Reto 1)
+# Proyecto: CardioAlert AP
 
 > Documentación para el jurado y guía de ejecución: [README.md](README.md) (en castellano). Si cambia una orden,
 > un puerto, el número de tests o una cifra de resultados, hay que actualizar también el README.
@@ -152,7 +152,7 @@ model/        entitats.py (dataclasses Pacient, Analitica [con `origen`], Diagno
 config/       rules.yaml: `rules` (las 8 reglas con "enabled", umbrales, "evidencia" y "pes") y `motor`
               (ecuación FGe, fecha de referencia, FRA, derivación, oportunidades terapéuticas, prioridad).
               Recomendaciones, umbrales y clases de evidencia revisados y validados por David Cebotari
-              (médico, equipo The GOATS) el 15/11/2026.
+              (médico) el 15/11/2026.
 engine/       Motor de reglas determinista (ver "Motor de reglas" más abajo).
 scripts/      generate_patients.py: generador sintético (seed 42) -> simulador/datos/demo/; con `--perfil
               realista` llama a cohort_realista.py (cupo calibrado con REGICOR y ENRICA) ->
@@ -279,7 +279,7 @@ estat_addon/  estados de las alertas, log de auditoría y registro de actividad 
   solo ordena dentro de cada grupo. La tarjeta CDS y el resumen los encabeza `alerta_principal` (la urgente).
 - Textos de salida (alertas, acciones, nota) en castellano; cero umbrales en el código.
 - **Estado de validación:** recomendaciones, umbrales y clases de evidencia revisados y validados por David
-  Cebotari (médico, equipo The GOATS) el 15/11/2026. Coeficientes transcritos de las publicaciones originales
+  Cebotari (médico) el 15/11/2026. Coeficientes transcritos de las publicaciones originales
   (README, «Base clínica»). Tests: SCORE2 contra el ejemplo publicado (5,9 % hombre / 4,2 % mujer,
   `tests/test_referencies_publicades.py`); CKD-EPI 2009 y REGICOR contra casos calculados con la fórmula
   publicada; SCORE2-OP, SCORE2-Diabetes, CKD Add-on y KFRE solo con tests propios de coherencia. El test del

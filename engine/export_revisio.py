@@ -252,7 +252,7 @@ def llibre_revisio(config: dict) -> Workbook:
         ("CardioAlert AP · revisión clínica de las reglas", None),
         ("Qué es", "Cada fila es una regla o umbral que usa el motor. Los valores se leen directamente de config/rules.yaml."),
         ("Estado de validación", "Recomendaciones, umbrales y clases de evidencia revisados y validados por David Cebotari "
-                                 "(médico, equipo The GOATS) el 15/11/2026."),
+                                 "(médico) el 15/11/2026."),
         ("Decisiones abiertas", "Hoja 'Decisiones abiertas': las únicas filas pendientes, marcadas como "
                                 "'Decisión clínica abierta (siguiente fase)'. La hoja 'Revisión' tiene todas las filas."),
         ("Para una nueva revisión", "En la columna 'Revisión' elegir Correcto / Corregir / Eliminar / No sé. Si corrige, "

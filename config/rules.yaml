@@ -3,7 +3,7 @@
 # sense tocar codi.
 #
 # ESTAT DE VALIDACIÓ: Recomanacions, llindars i classes d'evidència revisats i validats per David Cebotari
-# (metge, equip The GOATS) el 15/11/2026. No canviar cap valor sense validació clínica.
+# (metge) el 15/11/2026. No canviar cap valor sense validació clínica.
 # Coeficients de les fórmules: transcrits de les publicacions originals citades (README, «Base clínica»).
 # Tests automàtics: SCORE2 contra l'exemple publicat a l'article (5,9 % home i 4,2 % dona); CKD-EPI 2009 i
 # REGICOR contra casos calculats amb la fórmula publicada; SCORE2-OP, SCORE2-Diabetes, CKD Add-on i KFRE només
