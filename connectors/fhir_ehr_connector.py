@@ -178,6 +178,14 @@ class FhirEhrConnector(Connector):
             raise ErrorFhirEhr(f"la estación no ha devuelto el paciente {patient_id}")
         return FhirConnector._llegeix_bundle(bundle, self._ref or _data(bundle.get("timestamp")) or date.today())
 
+    def actualitza_pacient(self, patient_id: str) -> DadesPacient:
+        """Torna a llegir un pacient de l'estació i, si el cupo ja és en memòria, el substitueix (dades noves
+        d'un sol pacient sense tornar a exportar el cupo sencer)."""
+        d = self.llegeix_pacient(patient_id)
+        if self._dades is not None:
+            self._dades[patient_id] = d
+        return DadesPacient(d.pacient, list(d.analitiques), list(d.diagnostics), list(d.medicacions))
+
     # --- El cupo sencer (FHIR Bulk Data) -------------------------------------------------------
 
     def carrega_cupo(self, cupo: CupoEhr | None = None) -> CupoEhr:

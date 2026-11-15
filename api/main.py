@@ -15,6 +15,7 @@ Endpoints:
     GET  /api/export/excel                                    descàrrega del cupo complet en .xlsx
     GET  /api/pruebas-pendientes, GET /api/export/pruebas-pendientes?formato=csv|xlsx
                                                               proves pendents (UACR, creatinina) i petició conjunta
+    POST /api/pacientes/{id}/recalcular                       torna a llegir i recalcula un pacient (analítica nova)
     GET  /api/estados                                         estat de cada alerta (Pendiente, Citado…) i llista «Hoy»
     POST /api/pacientes/{id}/estado                           canvia l'estat d'un pacient (queda al log d'auditoria)
     GET  /api/pacientes/{id}/auditoria, GET /api/auditoria    log d'auditoria dels canvis d'estat
@@ -149,7 +150,26 @@ class Avaluacio:
     segons_lectura: float | None = None  # només amb l'estació: exportació Bulk Data (descàrrega + lectura)
     estacio: dict | None = None  # només amb l'estació: `_meta_estacio` del cupo que s'ha avaluat
     servidor: str = ""  # clau dels estats de les alertes: la URL del servidor FHIR (o la font de proves)
-    calculat_a: str = field(default_factory=lambda: datetime.now().astimezone().isoformat(timespec="seconds"))
+    calculat_a: str = field(default_factory=lambda: _ara())  # hora de l'últim càlcul del cupo sencer
+    files: dict[str, dict] = field(default_factory=dict)  # fila JSON de cada pacient (per refer json_cos)
+    recalculats: dict[str, str] = field(default_factory=dict)  # pacient -> hora del recàlcul individual
+
+
+def _ara() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _fila(r: ResultatPacient) -> dict:
+    """La fila d'un pacient a /api/cupo: tot menys la nota i el volant (només viatgen a la fitxa)."""
+    fila = r.to_dict()
+    del fila["nota_clinica_auto"], fila["volant_auto"]
+    return jsonable_encoder(fila)
+
+
+def _cos(resultats: list[ResultatPacient], files: dict[str, dict]) -> bytes:
+    """'"kpis": {...}, "pacients": [...]' ja serialitzat (el que més triga a generar)."""
+    return json.dumps({"kpis": jsonable_encoder(_kpis(resultats)), "pacients": [files[r.pacient_id] for r in resultats]},
+                      ensure_ascii=False, separators=(",", ":"))[1:-1].encode("utf-8")
 
 
 def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path = DADES_LOCALS,
@@ -303,16 +323,10 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             if av is None:
                 m = RiskEngine(con, config, escala=escala)
                 resultats = m.avalua_cupo()
-                pacients = []
-                for r in resultats:
-                    fila = r.to_dict()
-                    del fila["nota_clinica_auto"], fila["volant_auto"]  # nota i volant només viatgen a la fitxa
-                    pacients.append(fila)
-                cos = json.dumps(jsonable_encoder({"kpis": _kpis(resultats), "pacients": pacients}),
-                                 ensure_ascii=False, separators=(",", ":"))[1:-1].encode("utf-8")
-                av = Avaluacio(m, resultats, {r.pacient_id: r for r in resultats}, cos,
+                files = {r.pacient_id: _fila(r) for r in resultats}
+                av = Avaluacio(m, resultats, {r.pacient_id: r for r in resultats}, _cos(resultats, files),
                                round(time.perf_counter() - inici, 3),
-                               con.segons_lectura if font == "ehr" else None, info_estacio, servidor)
+                               con.segons_lectura if font == "ehr" else None, info_estacio, servidor, files=files)
                 memoria["avaluacions"][clau] = av
         if font == "ehr":
             origen = dict(av.estacio)
@@ -395,6 +409,59 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
         cap = json.dumps({"meta": meta}, ensure_ascii=False, separators=(",", ":"))[:-1].encode("utf-8")
         cua = json.dumps(estats_cupo(av), ensure_ascii=False, separators=(",", ":"))[1:].encode("utf-8")
         return Response(cap + b"," + av.json_cos + b"," + cua, media_type="application/json")
+
+    @app.post("/api/pacientes/{pacient_id}/recalcular")
+    def recalcula(pacient_id: str, iss: str | None = q_iss, scale: Escala | None = q_scale,
+                  source: Font | None = q_source, cohort: Cohort = "demo") -> dict:
+        """Torna a llegir un pacient i el recalcula, sense tornar a exportar el cupo (és el que passaria en
+        arribar-ne una analítica nova). Substitueix el resultat als cupos en memòria d'aquest servidor (la llista
+        es reordena) i, si hi ha alguna alerta nova, el pacient torna a «Pendiente»."""
+        inici = time.perf_counter()
+        if (source or font_per_defecte) == "ehr":
+            servidor = url = url_estacio(iss)
+            con = estacio(url)
+            try:
+                d = con.actualitza_pacient(pacient_id)
+            except KeyError:
+                raise HTTPException(404, f"Paciente {pacient_id} no encontrado en la estación clínica") from None
+            except ErrorFhirEhr as exc:
+                raise error_estacio(url, exc) from None
+        else:
+            av, _ = avaluacio(source, scale, cohort)
+            servidor, con = av.servidor, av.motor.connector
+            try:
+                d = con.get_patient_data(pacient_id)
+            except KeyError:
+                raise HTTPException(404, f"Paciente {pacient_id} no encontrado") from None
+        m = RiskEngine(con, config_actual(), escala=scale)
+        res = m.avalua_dades(d)
+        ara = _ara()
+        abans = posicio = None
+        with pany:
+            for clau, av in memoria["avaluacions"].items():
+                if av.servidor != servidor:
+                    continue
+                nou = res if clau[-1] == scale else av.motor.avalua_dades(d)
+                if clau[-1] == scale:
+                    abans = av.per_id.get(pacient_id)
+                av.resultats = sorted([r for r in av.resultats if r.pacient_id != pacient_id] + [nou], key=RiskEngine.clau_ordre)
+                av.per_id[pacient_id] = nou
+                av.files[pacient_id] = _fila(nou)
+                av.json_cos = _cos(av.resultats, av.files)
+                av.recalculats[pacient_id] = ara
+                if clau[-1] == scale:
+                    posicio = av.resultats.index(nou) + 1
+        regles_ara, regles_abans = res.regles_actives(), abans.regles_actives() if abans else set()
+        return {
+            "pacient_id": pacient_id, "recalculat_a": ara, "segons": round(time.perf_counter() - inici, 3),
+            "abans": ({"grup_ordre": abans.grup_ordre, "puntuacio_prioritat": abans.puntuacio_prioritat,
+                       "categoria_risc_cv": abans.categoria_risc_cv} if abans else None),
+            "ara": {"grup_ordre": res.grup_ordre, "puntuacio_prioritat": res.puntuacio_prioritat,
+                    "categoria_risc_cv": res.categoria_risc_cv, "posicio": posicio},
+            "alertes_noves": sorted(regles_ara - regles_abans) if abans else [],
+            "alertes_resoltes": sorted(regles_abans - regles_ara),
+            "estat": estat_pacient(servidor, res, m.avui),
+        }
 
     @app.get("/api/estados")
     def estados(iss: str | None = q_iss, scale: Escala | None = q_scale, source: Font | None = q_source,

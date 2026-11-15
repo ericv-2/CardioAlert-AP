@@ -102,7 +102,7 @@ export default function App() {
         )}
         {route.view === "pruebas" && <PruebasView cupo={cupo} sel={SEL} onRetry={recalcular} />}
         {route.view === "parametros" && <RulesView kpis={cupo.data?.kpis} recalculando={cupo.loading} onSaved={recalcular} />}
-        {route.view === "paciente" && <PatientView id={route.id} sel={SEL} version={peticion.n} fuentes={cupo.data?.kpis.fonts} onEstado={refrescarEstados} />}
+        {route.view === "paciente" && <PatientView id={route.id} sel={SEL} version={peticion.n} fuentes={cupo.data?.kpis.fonts} onEstado={refrescarEstados} onRecalculado={recalcular} />}
       </main>
     </div>
   );

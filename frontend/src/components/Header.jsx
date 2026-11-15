@@ -1,5 +1,5 @@
 import { Database, HeartPulse, LoaderCircle, Plug, RotateCw, TriangleAlert } from "lucide-react";
-import { fecha } from "../format.js";
+import { fecha, fechaHora } from "../format.js";
 
 function NavLink({ href, active, children }) {
   return (
@@ -136,6 +136,11 @@ export default function Header({ route, meta, loading, sinDatos = false, onRelee
               {meta.fhir_server && (
                 <span>
                   Servidor FHIR: <span className="font-mono text-[11px] text-ink">{meta.fhir_server}</span>
+                </span>
+              )}
+              {meta.calculat_a && (
+                <span title="Hora en que se leyó y calculó el cupo entero (los recálculos de un paciente no la cambian)">
+                  Último cálculo del cupo: <strong className="font-semibold text-ink">{fechaHora(meta.calculat_a)}</strong>
                 </span>
               )}
               <span>Fecha de referencia: {fecha(meta.data_referencia)}</span>

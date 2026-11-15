@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, BellRing, CircleCheck, ClipboardList, FileText, Lightbulb, ListChecks, PiggyBank } from "lucide-react";
+import { ArrowLeft, BellRing, CircleCheck, ClipboardList, FileText, Lightbulb, ListChecks, PiggyBank, RefreshCw } from "lucide-react";
 import { api } from "../api.js";
-import { ESTADO_RENAL, fecha, KDIGO, num, pct, SEXO } from "../format.js";
+import { ESTADO_RENAL, fecha, fechaHora, KDIGO, num, pct, SEXO } from "../format.js";
 import EstadoPanel from "./EstadoPanel.jsx";
 import NoteModal from "./NoteModal.jsx";
 import RenalChart, { estiloOrigenes, Marca } from "./RenalChart.jsx";
@@ -42,12 +42,34 @@ function OrigenTag({ origen, estilos }) {
   );
 }
 
-export default function PatientView({ id, sel, version, fuentes, onEstado }) {
+function textoRecalculo(r) {
+  const cambios = [
+    r.alertes_noves.length > 0 && `alertas nuevas: ${r.alertes_noves.join(", ")}`,
+    r.alertes_resoltes.length > 0 && `alertas resueltas: ${r.alertes_resoltes.join(", ")}`,
+  ].filter(Boolean);
+  const posicion = r.ara.posicio ? ` · posición ${num(r.ara.posicio)} de la lista de trabajo` : "";
+  return `Recalculado el ${fechaHora(r.recalculat_a)} con los datos actuales de la estación: ${cambios.join("; ") || "sin cambios en las alertas"}${posicion}.`;
+}
+
+export default function PatientView({ id, sel, version, fuentes, onEstado, onRecalculado }) {
   const [estado, setEstado] = useState({ data: null, error: null });
   const [intento, setIntento] = useState(0);
   const [modal, setModal] = useState(false);
   const [prueba, setPrueba] = useState("TODAS");
   const cerrarModal = useCallback(() => setModal(false), []);
+  const [recalculo, setRecalculo] = useState({ enCurso: false, resultado: null, error: null });
+  useEffect(() => setRecalculo({ enCurso: false, resultado: null, error: null }), [id]);
+  // Vuelve a leer el paciente de la estación y lo recalcula; la lista de trabajo se reordena sin releer el cupo
+  const recalcular = async () => {
+    setRecalculo({ enCurso: true, resultado: null, error: null });
+    try {
+      const r = await api.recalcular(id, sel);
+      setRecalculo({ enCurso: false, resultado: r, error: null });
+      onRecalculado?.();
+    } catch (e) {
+      setRecalculo({ enCurso: false, resultado: null, error: e.message });
+    }
+  };
   // Tras cambiar el estado: se actualiza la ficha sin volver a leerla y la página principal («Hoy»)
   const estadoCambiado = useCallback(
     (r) => {
@@ -123,15 +145,37 @@ export default function PatientView({ id, sel, version, fuentes, onEstado }) {
             </p>
             <p className="mt-2 max-w-4xl text-sm text-ink">{p.resum}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => setModal(true)}
-            className="inline-flex items-center gap-2 rounded-md bg-clinic-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-clinic-700"
-          >
-            <FileText className="size-4" aria-hidden="true" />
-            Generar nota clínica y volante
-          </button>
+          <div className="flex flex-col items-end gap-2">
+            <button
+              type="button"
+              onClick={() => setModal(true)}
+              className="inline-flex items-center gap-2 rounded-md bg-clinic-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-clinic-700"
+            >
+              <FileText className="size-4" aria-hidden="true" />
+              Generar nota clínica y volante
+            </button>
+            <button
+              type="button"
+              onClick={recalcular}
+              disabled={recalculo.enCurso}
+              title="Vuelve a leer este paciente de la estación clínica y lo recalcula (como cuando llega una analítica nueva)"
+              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold text-clinic-700 ring-1 ring-inset ring-line hover:bg-clinic-50 disabled:opacity-60"
+            >
+              <RefreshCw className={`size-4 ${recalculo.enCurso ? "animate-spin" : ""}`} aria-hidden="true" />
+              Recalcular paciente
+            </button>
+          </div>
         </div>
+        {recalculo.error && (
+          <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-900 ring-1 ring-inset ring-red-200" role="alert">
+            {recalculo.error}
+          </p>
+        )}
+        {recalculo.resultado && (
+          <p className="mt-3 rounded-md bg-clinic-50 px-3 py-2 text-sm text-ink ring-1 ring-inset ring-line" role="status">
+            {textoRecalculo(recalculo.resultado)}
+          </p>
+        )}
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-line pt-4 sm:grid-cols-3 lg:grid-cols-6">
           <Dato
             etiqueta="KDIGO"

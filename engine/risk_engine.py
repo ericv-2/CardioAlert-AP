@@ -283,10 +283,14 @@ class RiskEngine:
     def avalua(self, patient_id: str) -> ResultatPacient:
         return self.avalua_dades(self.connector.get_patient_data(patient_id))
 
+    @staticmethod
+    def clau_ordre(r: ResultatPacient) -> tuple:
+        """Ordre de la llista de treball: per grup i, dins de cada grup, per puntuació (i per identificador)."""
+        return r.grup_ordre, -r.puntuacio_prioritat, r.pacient_id
+
     def avalua_cupo(self) -> list[ResultatPacient]:
         """Tot el cupo en l'ordre de la llista de treball: per grup i, dins de cada grup, per puntuació."""
-        resultats = [self.avalua(p.id) for p in self.connector.get_patients()]
-        return sorted(resultats, key=lambda r: (r.grup_ordre, -r.puntuacio_prioritat, r.pacient_id))
+        return sorted((self.avalua(p.id) for p in self.connector.get_patients()), key=self.clau_ordre)
 
     def minimitza(self, d: DadesPacient) -> DadesPacient:
         """Només les analítiques dins de la finestra de cada prova (minimització, art. 5.1.c RGPD). Les proves

@@ -141,6 +141,42 @@ def test_una_alerta_nova_torna_el_pacient_a_pendent(client, estacio):
     assert "possible_ic" in darrera["motiu"] and darrera["qui"]["nom"].startswith("CardioAlert AP")
 
 
+def test_recalcular_un_pacient_quan_arriba_una_analitica_nova(client, estacio):
+    cupo = client.get("/api/cupo").json()
+    calculat = cupo["meta"]["calculat_a"]
+    assert calculat and cupo["meta"]["en_memoria"] is False
+    # Sense dades noves: el mateix resultat, sense tornar a exportar el cupo
+    pid = "P050"
+    exportacions = estacio.exportacions()
+    r = client.post(f"/api/pacientes/{pid}/recalcular").json()
+    assert r["alertes_noves"] == r["alertes_resoltes"] == [] and r["abans"] == {k: r["ara"][k] for k in r["abans"]}
+    assert estacio.exportacions() == exportacions and r["recalculat_a"]
+    # Arriba un NT-proBNP alt: possible IC (alerta urgent), el pacient puja al grup 1 i torna a «Pendiente»
+    assert "possible_ic" not in {a["regla"] for a in next(p for p in cupo["pacients"] if p["pacient_id"] == pid)["alertes_actives"]}
+    assert _estat(client, pid, "revisat").status_code == 200
+    bundle = copy.deepcopy(estacio.bundles("demo")[pid])
+    bundle["entry"].append({"resource": {
+        "resourceType": "Observation", "id": f"{pid}-obs-nova", "status": "final",
+        "code": {"coding": [{"system": "http://loinc.org", "code": "33762-6", "display": "NT-proBNP"}], "text": "NT-proBNP"},
+        "subject": {"reference": f"Patient/{pid}"}, "effectiveDateTime": "2026-11-12",
+        "valueQuantity": {"value": 2400.0, "unit": "pg/mL", "system": "http://unitsofmeasure.org", "code": "pg/mL"},
+        "performer": [{"display": "Lab. Hospital"}]}})
+    estacio._bundles["demo"][pid] = bundle
+    r = client.post(f"/api/pacientes/{pid}/recalcular").json()
+    assert r["alertes_noves"] == ["possible_ic"] and r["ara"]["grup_ordre"] == 1 and r["estat"]["estat"] == "pendent"
+    assert estacio.exportacions() == exportacions  # un sol pacient: no s'ha tornat a exportar el cupo
+    # El cupo en memòria ja porta el resultat nou, reordenat, i l'hora del càlcul del cupo no canvia
+    despres = client.get("/api/cupo").json()
+    assert despres["meta"]["en_memoria"] is True and despres["meta"]["calculat_a"] == calculat
+    ids = [p["pacient_id"] for p in despres["pacients"]]
+    assert ids.index(pid) + 1 == r["ara"]["posicio"] and despres["pacients"][ids.index(pid)]["grup_ordre"] == 1
+    ordre = [(p["grup_ordre"], -p["puntuacio_prioritat"], p["pacient_id"]) for p in despres["pacients"]]
+    assert ordre == sorted(ordre) and len(ids) == 100
+    assert despres["kpis"]["grups"]["1"] == cupo["kpis"]["grups"]["1"] + 1
+    assert pid in despres["llista_avui"] or len(despres["llista_avui"]) == 10
+    assert client.post("/api/pacientes/P999/recalcular").status_code == 404
+
+
 def test_posposicio_vencuda_compta_com_a_pendent(tmp_path):
     store = EstatsStore(tmp_path)
     store.canvia("http://x/fhir", "P001", "posposat", CARMEN, {"fge_descens"}, date(2026, 11, 13), "2026-11-20")
