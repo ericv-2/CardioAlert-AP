@@ -8,3 +8,4 @@ config/backups/
 exports/
 node_modules/
 frontend/dist/
+simulador/dist/

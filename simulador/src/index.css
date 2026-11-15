@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+/* Estación clínica genérica: grises pizarra y verde azulado. A propósito distinta de la paleta azul del add-on. */
+@theme {
+  --font-sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+}
+
+html { color-scheme: light; }
+body { margin: 0; background: #eef1f4; color: #0f172a; font-family: var(--font-sans); }
+:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+.tabular { font-variant-numeric: tabular-nums; }
