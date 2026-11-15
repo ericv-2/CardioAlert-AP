@@ -19,6 +19,7 @@ echo  ------------------------------------------------------------
 echo   Cada aplicacion corre en su propia ventana: cierrela para pararla.
 echo   En la estacion: Configuracion - Integraciones - Instalar
 echo   (URL del add-on: http://localhost:8000).
+echo   El add-on lee los datos del servidor FHIR de la estacion.
 echo  ============================================================
 echo.
 

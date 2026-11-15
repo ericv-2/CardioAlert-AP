@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Arranca SOLO el add-on CardioAlert AP: la API (puerto 8000) y su interfaz (puerto 5173).
 # No arranca la estación clínica simulada (para eso: ./start_simulador.sh).
+# El add-on no tiene datos propios: los lee del servidor FHIR de la estación clínica.
 set -e
 cd "$(dirname "$0")"
 
@@ -52,6 +53,9 @@ cat <<'EOF'
  ------------------------------------------------------------
   URL para instalar el add-on en la estación clínica:
                          http://localhost:8000
+  El add-on NO tiene datos propios: los lee del servidor FHIR
+  de la estación clínica (http://localhost:5174/fhir).
+  Arranque también la estación: ./start_simulador.sh
   Para parar: Ctrl+C.
  ============================================================
 

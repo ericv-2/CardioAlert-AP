@@ -1,5 +1,6 @@
 @echo off
 rem Arranca SOLO la estacion clinica simulada (puerto 5174). No necesita Python ni el add-on.
+rem Los datos de los pacientes son de la estacion (simulador\datos) y los sirve su servidor FHIR.
 chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
@@ -31,7 +32,9 @@ echo  ============================================================
 echo   ESTACION CLINICA SIMULADA  (datos sinteticos)
 echo  ============================================================
 echo   Estacion clinica:      http://localhost:5174
-echo   Su servidor FHIR:      http://localhost:5174/fhir/Patient
+echo   Su servidor FHIR:      http://localhost:5174/fhir/metadata
+echo   Cupo activo:           Configuracion - Cupo / centro
+echo                          ^(demo de 100 o realista de 1.500^)
 echo  ------------------------------------------------------------
 echo   Por defecto NO tiene ningun add-on instalado.
 echo   Para instalar CardioAlert AP: Configuracion - Integraciones,

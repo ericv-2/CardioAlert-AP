@@ -17,13 +17,15 @@ python scripts/generate_patients.py --perfil realista --n 1500
 ```
 
 - Llavor fixa (`llavor: 2026` a `config/cohort_realista.yaml`): el resultat és sempre el mateix.
-- Sortida a `data/realista/`: `fhir/` (un bundle FHIR R4 per pacient), `csv/` i `veritat.csv` (el que el
+- Sortida a `simulador/datos/realista/`: `fhir/` (un bundle FHIR R4 per pacient), `csv/` i `veritat.csv` (el que el
   generador "sap" de cada pacient: MRC real, tipus, si està diagnosticada, IC...). Identificadors `R0001`-`R1500`.
 - **Només en local.** No es puja al servidor FHIR públic: `scripts/upload_to_fhir.py` només llegeix
-  `data/synthetic` i l'API llegeix aquesta cohort del disc (`cohort=realista`).
+  `simulador/datos/demo`. `source=local&cohort=realista` (només per a tests) la llegeix del disc.
 - Opcions: `--n` (mida del cupo), `--mrc-sense-dx` (part de les MRC sense diagnòstic, per defecte 2/3),
   `--prevalenca-ic` (%), `--llavor`, `--sortida`. La resta de paràmetres, a `config/cohort_realista.yaml`.
-- A la web: selector "Cohorte" → "Cupo realista (1.500)" (o `http://localhost:5173/?cohort=realista`).
+- A la demo: les dades són de l'estació clínica simulada. A "Configuración → Cupo / centro" de l'estació
+  es tria "Cupo realista" i l'add-on el llegeix del servidor FHIR de l'estació amb Bulk Data (decisions.md
+  §14). La interfície de l'add-on ja no té selector de cohort.
 
 ## Fonts: quina xifra surt d'on
 

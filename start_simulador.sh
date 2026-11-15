@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Arranca SOLO la estación clínica simulada (puerto 5174). No necesita Python ni el add-on.
+# Los datos de los pacientes son de la estación (simulador/datos) y los sirve su servidor FHIR.
 set -e
 cd "$(dirname "$0")"
 
@@ -23,7 +24,9 @@ cat <<'EOF'
   ESTACIÓN CLÍNICA SIMULADA  (datos sintéticos)
  ============================================================
   Estación clínica:      http://localhost:5174
-  Su servidor FHIR:      http://localhost:5174/fhir/Patient
+  Su servidor FHIR:      http://localhost:5174/fhir/metadata
+  Cupo activo:           Configuración → Cupo / centro
+                         (demo de 100 o realista de 1.500)
  ------------------------------------------------------------
   Por defecto NO tiene ningún add-on instalado.
   Para instalar CardioAlert AP: Configuración → Integraciones,

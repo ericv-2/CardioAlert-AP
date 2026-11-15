@@ -56,7 +56,7 @@ export default function PatientView({ id, sel, version, fuentes }) {
       .then((data) => setEstado({ data, error: null }))
       .catch((e) => e.name !== "AbortError" && setEstado({ data: null, error: e.message }));
     return () => ctrl.abort();
-  }, [id, sel.source, sel.cohort, version, intento]);
+  }, [id, sel.iss, version, intento]);
 
   const data = estado.data?.pacient.pacient_id === id ? estado.data : null;
   const origenes = useMemo(() => [...new Set((data?.analitiques ?? []).map((a) => a.origen).filter(Boolean))].sort(), [data]);

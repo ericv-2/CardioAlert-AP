@@ -1,40 +1,5 @@
-import { Database, HeartPulse, LoaderCircle, Plug, TriangleAlert, Users } from "lucide-react";
-import { fecha, num } from "../format.js";
-
-const FUENTES = [
-  { value: "local", label: "Local (eCAP / DIRAYA Demo)" },
-  { value: "remote", label: "Servidor FHIR remoto" },
-];
-
-const COHORTES = [
-  { id: "demo", nom: "Demo", pacients: 100, disponible: true },
-  { id: "realista", nom: "Cupo realista", pacients: 1500, disponible: true },
-];
-
-function Selector({ id, label, icon: Icon, value, onChange, options, disabled = false, title }) {
-  return (
-    <label htmlFor={id} className="flex flex-col gap-1">
-      <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-clinic-100">
-        <Icon className="size-3.5" aria-hidden="true" />
-        {label}
-      </span>
-      <select
-        id={id}
-        value={value}
-        disabled={disabled}
-        title={title}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 max-w-[26rem] rounded-md border border-white/30 bg-white px-2.5 text-sm font-medium text-ink shadow-sm disabled:cursor-not-allowed disabled:bg-clinic-100 disabled:text-muted"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value} disabled={o.disabled}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
+import { Database, HeartPulse, LoaderCircle, Plug, RotateCw, TriangleAlert } from "lucide-react";
+import { fecha } from "../format.js";
 
 function NavLink({ href, active, children }) {
   return (
@@ -103,13 +68,36 @@ function Contexto({ lanzamiento, route }) {
   );
 }
 
-export default function Header({ route, source, onSource, cohort, onCohort, cohorts, meta, loading, extra, nav = [], lanzamiento = null }) {
-  const opcionesCohorte = (cohorts ?? COHORTES).map((c) => ({
-    value: c.id,
-    label: c.disponible ? `${c.nom} (${num(c.pacients)})` : `${c.nom} (no generada)`,
-    disabled: !c.disponible,
-  }));
-  const soloLocal = cohort === "realista";
+// De qué sistema se están leyendo los datos. Solo informa: el add-on no tiene datos propios ni elige el cupo;
+// lee del servidor FHIR de la estación clínica, y el cupo es el que la estación tiene activo.
+function DatosDe({ meta, loading, sinDatos, onReleer }) {
+  const texto = meta ? meta.dades_de : sinDatos ? "Sin conexión con la estación clínica" : "Conectando con la estación clínica…";
+  return (
+    <div className="flex items-end gap-2">
+      <div className="flex flex-col gap-1" title={meta?.fhir_server ? `Servidor FHIR: ${meta.fhir_server}` : undefined}>
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-clinic-100">
+          <Database className="size-3.5" aria-hidden="true" />
+          Datos de
+        </span>
+        <span className="flex h-9 max-w-[30rem] items-center rounded-md bg-white/15 px-2.5 text-sm font-semibold text-white ring-1 ring-inset ring-white/25">
+          <span className="truncate">{texto}</span>
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onReleer}
+        disabled={loading}
+        title="Volver a leer el cupo de la estación clínica y recalcular"
+        className="inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold text-white ring-1 ring-inset ring-white/40 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <RotateCw className={`size-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
+        Actualizar
+      </button>
+    </div>
+  );
+}
+
+export default function Header({ route, meta, loading, sinDatos = false, onReleer, extra, nav = [], lanzamiento = null }) {
   return (
     <header className="sticky top-0 z-30 shadow-sm">
       <div className="bg-clinic-600 text-white">
@@ -134,17 +122,7 @@ export default function Header({ route, source, onSource, cohort, onCohort, coho
             ))}
           </nav>
           <div className="ml-auto flex flex-wrap items-end gap-3">
-            <Selector id="sel-cohorte" label="Cohorte" icon={Users} value={cohort} onChange={onCohort} options={opcionesCohorte} />
-            <Selector
-              id="sel-fuente"
-              label="Fuente de datos"
-              icon={Database}
-              value={soloLocal ? "local" : source}
-              onChange={onSource}
-              options={FUENTES}
-              disabled={soloLocal}
-              title={soloLocal ? "El cupo realista solo está disponible en local: no se sube al servidor FHIR público" : undefined}
-            />
+            <DatosDe meta={meta} loading={loading} sinDatos={sinDatos} onReleer={onReleer} />
             {extra}
           </div>
         </div>
@@ -155,12 +133,11 @@ export default function Header({ route, source, onSource, cohort, onCohort, coho
           <span className="rounded bg-clinic-100 px-1.5 py-0.5 font-semibold text-clinic-800">Datos sintéticos</span>
           {meta ? (
             <>
-              <span>
-                Cohorte: <strong className="font-semibold text-ink">{meta.cohort_etiqueta}</strong>
-              </span>
-              <span>
-                Fuente activa: <strong className="font-semibold text-ink">{meta.font_etiqueta}</strong>
-              </span>
+              {meta.fhir_server && (
+                <span>
+                  Servidor FHIR: <span className="font-mono text-[11px] text-ink">{meta.fhir_server}</span>
+                </span>
+              )}
               <span>Fecha de referencia: {fecha(meta.data_referencia)}</span>
               <span>
                 Riesgo CV: tabla 5 de la guía {meta.guia_risc_cv} (SCORE2 / SCORE2-OP / SCORE2-Diabetes, país de riesgo bajo)
@@ -169,12 +146,12 @@ export default function Header({ route, source, onSource, cohort, onCohort, coho
               <span>FGe: {meta.equacio_fge}</span>
             </>
           ) : (
-            <span>Conectando con la API…</span>
+            <span>{sinDatos ? "Sin datos: no se ha podido leer la estación clínica" : "Leyendo los datos de la estación clínica…"}</span>
           )}
           {loading && (
             <span className="ml-auto flex items-center gap-1.5 text-clinic-700" role="status">
               <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-              {source === "remote" && !soloLocal ? "Consultando el servidor FHIR remoto…" : "Calculando el cupo…"}
+              Leyendo el cupo de la estación y calculando…
             </span>
           )}
         </div>
