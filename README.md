@@ -6,7 +6,7 @@ Equipo 34 · The GOATS · Reto 1 «Automatizar lo repetitivo» (Hackathon Boehri
 
 > Prototipo con **datos sintéticos**. No es un producto sanitario ni una herramienta oficial de ningún servicio de salud. La estación clínica que se ve en la demo es una simulación genérica.
 
-Vídeo: (enlace pendiente)
+Vídeo: [https://youtu.be/tYDvQKqgcfE](https://youtu.be/tYDvQKqgcfE)
 
 ---
 
