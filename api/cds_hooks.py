@@ -28,6 +28,21 @@ SERVEI = {
 # tractament adequat = warning, la resta = info.
 INDICADOR = {1: "critical", 2: "warning", 3: "warning", 4: "info"}
 MAX_SUMMARY = 140  # l'especificació demana un summary de menys de 140 caràcters
+EXTENSIO_APP = "cardioalert-app"  # clau de `extension` on el discovery anuncia la interfície de l'add-on
+
+
+def servei(url_app: str | None = None) -> dict:
+    """Definició del servei per al discovery. Si es coneix la URL de la interfície de l'add-on, s'anuncia
+    al camp `extension` (previst per l'especificació) perquè l'estació clínica la pugui obrir incrustada
+    amb el pacient i el professional com a context (llançament SMART on FHIR simulat)."""
+    if not url_app:
+        return dict(SERVEI)
+    return {**SERVEI, "extension": {EXTENSIO_APP: {
+        "title": SERVEI["title"],
+        "launchUrl": url_app,
+        "launchType": "smart-ehr-launch",
+        "description": "Interfaz completa del add-on (lista «Hoy», cupo, ficha y parámetros). Lanzamiento simulado, sin OAuth.",
+    }}}
 
 
 def id_pacient(peticio: dict) -> str | None:
@@ -80,8 +95,9 @@ def _detail(res: ResultatPacient) -> str:
     return "\n".join(linies)
 
 
-def targeta(res: ResultatPacient, guia: str) -> dict:
-    """Una targeta per pacient: summary d'una línia, indicator segons el grup d'ordre, detail i suggestions."""
+def targeta(res: ResultatPacient, guia: str, url_app: str | None = None) -> dict:
+    """Una targeta per pacient: summary d'una línia, indicator segons el grup d'ordre, detail i suggestions.
+    Amb `url_app`, la targeta porta un enllaç de tipus "smart" a la interfície de l'add-on."""
     card = {
         "uuid": str(uuid.uuid4()),
         "summary": _summary(res),
@@ -94,4 +110,6 @@ def targeta(res: ResultatPacient, guia: str) -> dict:
         card["suggestions"] = [{"label": a.text, "uuid": str(uuid.uuid4()), "isRecommended": i == 0}
                                for i, a in enumerate(res.accions_recomanades)]
         card["selectionBehavior"] = "any"
+    if url_app:
+        card["links"] = [{"label": "Abrir la ficha en CardioAlert AP", "url": url_app, "type": "smart"}]
     return card

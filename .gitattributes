@@ -1,0 +1,3 @@
+# Los .bat necesitan finales de línea de Windows y los .sh de Unix, sea cual sea el sistema del que clona
+*.bat text eol=crlf
+*.sh text eol=lf
