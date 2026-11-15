@@ -148,6 +148,8 @@ class ResultatPacient:
     regicor_referencia: float | None = None  # % REGICOR, només com a referència (mode totes_dues)
     nota_calibracio: str | None = None  # avís de calibració amb el valor de REGICOR
     alertes_actives: list[Alerta] = field(default_factory=list)
+    # Proves que falten (uacr_falta, creatinina_falta): prova, última determinació i des de quan
+    proves_pendents: list[dict] = field(default_factory=list)
     alerta_principal: str | None = None  # regla de l'alerta que encapçala el resum (una d'urgent, si n'hi ha)
     accions_recomanades: list[Accio] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)  # notes informatives (anti-inèrcia, dades que falten)
@@ -210,6 +212,7 @@ class _Sortida:
     def __init__(self, guia: str):
         self.guia = guia
         self.alertes: list[Alerta] = []
+        self.proves: list[dict] = []
         self.accions: dict[str, Accio] = {}
         self.avisos: list[str] = []
 
@@ -300,7 +303,8 @@ class RiskEngine:
 
         prioritat = self.motor["prioritat"]
         pes_kdigo = prioritat["kdigo"].get(f.color, 0) if f.color else 0
-        puntuacio = min(100, sum(a.pes for a in s.alertes) + pes_kdigo)
+        fora = set(prioritat.get("alertes_fora_avui", []))  # proves pendents: no sumen per a l'ordre
+        puntuacio = min(100, sum(a.pes for a in s.alertes if a.regla not in fora) + pes_kdigo)
         regles = {a.regla for a in s.alertes}
         grup = (1 if regles & set(prioritat.get("alertes_urgents", []))
                 else 4 if "risc_cardiovascular" not in regles else 2 if categoria == "molt_alt" else 3)
@@ -330,6 +334,7 @@ class RiskEngine:
             nota_calibracio=(NOTA_CALIBRACIO.format(valor=_n(risc_cv["regicor"], 1))
                              if risc_cv and risc_cv["regicor"] is not None else None),
             alertes_actives=s.alertes,
+            proves_pendents=s.proves,
             accions_recomanades=list(s.accions.values()),
             avisos=s.avisos,
             ben_tractat=pendents == [] and not s.alertes,
@@ -337,9 +342,9 @@ class RiskEngine:
             fonts_dades=sorted({a.origen for a in d.analitiques if a.origen}),
             dades_creuades=len({a.origen for a in d.analitiques if a.origen and " - " in a.origen}) > 1,
         )
-        if s.alertes:  # primer les urgents i, dins de cada tipus, la de més punts (en empat, la primera)
+        if s.alertes:  # primer les urgents, després les que compten per a l'ordre i, dins, la de més punts
             urgents = set(prioritat.get("alertes_urgents", []))
-            res.alerta_principal = max(s.alertes, key=lambda a: (a.regla in urgents, a.pes)).regla
+            res.alerta_principal = max(s.alertes, key=lambda a: (a.regla in urgents, a.regla not in fora, a.pes)).regla
         res.resum = self._resum(res)
         res.nota_clinica_auto = self._nota_clinica(d, f, res)
         res.volant_auto = self._volant(f, res)
@@ -726,6 +731,7 @@ class RiskEngine:
             return
         nom = "UACR" if r["prova"] == LOINC["uacr"] else "creatinina"
         ult = d.ultima(r["prova"])
+        mesos = None
         if ult is None:
             motiu = f"Paciente con {' + '.join(dxs)} sin ninguna determinación de {nom} registrada"
         elif (self.avui - ult.data).days > _dies(r["max_mesos_sense_prova"]):
@@ -736,6 +742,12 @@ class RiskEngine:
             return
         s.alerta(regla, r, titol, motiu, [Mesura(ult.data, ult.valor, ult.origen)] if ult else [])
         s.accio(accio, r)
+        seccio, peticio = VOLANT[accio]
+        s.proves.append({"regla": regla, "prova": nom if nom == "UACR" else "Creatinina", "loinc": r["prova"],
+                         "peticio": peticio, "ultima_data": ult.data if ult else None,
+                         "ultim_valor": ult.valor if ult else None, "unitat": ult.unitat if ult else None,
+                         "origen": ult.origen if ult else None, "mesos_sense": mesos,
+                         "max_mesos": r["max_mesos_sense_prova"], "diagnostics": dxs})
 
     # --- Oportunitats terapèutiques ---------------------------------------------------------
 

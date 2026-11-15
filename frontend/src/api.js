@@ -49,4 +49,6 @@ export const api = {
       body: JSON.stringify({ canvis }),
     }),
   excelUrl: ({ iss }) => url("/api/export/excel", { iss }),
+  // Petición conjunta de las pruebas pendientes (UACR, creatinina): "csv" o "xlsx".
+  pruebasUrl: ({ iss }, formato) => url("/api/export/pruebas-pendientes", { iss, formato }),
 };

@@ -13,6 +13,8 @@ Endpoints:
     GET  /api/cupo                                            KPIs + cupo avaluat en l'ordre de la llista de treball
     GET  /api/pacientes/{id}                                  fitxa: resultat, històric amb origen i sèries renals
     GET  /api/export/excel                                    descàrrega del cupo complet en .xlsx
+    GET  /api/pruebas-pendientes, GET /api/export/pruebas-pendientes?formato=csv|xlsx
+                                                              proves pendents (UACR, creatinina) i petició conjunta
     GET  /api/estados                                         estat de cada alerta (Pendiente, Citado…) i llista «Hoy»
     POST /api/pacientes/{id}/estado                           canvia l'estat d'un pacient (queda al log d'auditoria)
     GET  /api/pacientes/{id}/auditoria, GET /api/auditoria    log d'auditoria dels canvis d'estat
@@ -59,6 +61,7 @@ from connectors.fhir_ehr_connector import CupoEhr, ErrorFhirEhr, dades_de_prefet
 from engine import ResultatPacient, RiskEngine
 from engine.__main__ import meta_avaluacio, recompte
 from engine.export_excel import bytes_cupo
+from engine.export_proves import csv_proves, excel_proves, files_proves
 from engine.risk_engine import ARREL, CONFIG_DEFECTE, GRUPS_ORDRE, NOM_EQUACIO
 from model import DadesPacient
 
@@ -103,6 +106,8 @@ def _kpis(cupo: list[ResultatPacient]) -> dict:
         "alertes": sum(len(r.alertes_actives) for r in cupo),
         "mrc_no_diagnosticada": regles["mrc_no_diagnosticada"],
         "uacr_pendent": regles["uacr_falta"],
+        "proves_pendents": sum(bool(r.proves_pendents) for r in cupo),  # pacients a «Pruebas pendientes»
+        "proves_pendents_total": sum(len(r.proves_pendents) for r in cupo),
         "risc_cv_alt": sum(bool(r.risc_cv and r.risc_cv["categoria"] in ("alt", "molt_alt")) for r in cupo),
         "risc_cv_infratractat": regles["risc_cardiovascular"],
         "ben_tractats": sum(r.ben_tractat for r in cupo),
@@ -495,6 +500,32 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             bytes_cupo(av.resultats, info),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": 'attachment; filename="cupo_evaluado.xlsx"'})
+
+    def proves_pendents(iss, scale, source, cohort) -> tuple[list[dict], Avaluacio, dict]:
+        av, meta = avaluacio(source, scale, cohort, iss)
+        return files_proves(av.resultats, estats_cupo(av)["estats"]), av, meta
+
+    @app.get("/api/pruebas-pendientes")
+    def pruebas_pendientes(iss: str | None = q_iss, scale: Escala | None = q_scale, source: Font | None = q_source,
+                           cohort: Cohort = "demo") -> dict:
+        """Pacients amb UACR o creatinina pendent (uacr_falta, creatinina_falta): una fila per prova."""
+        files, _, meta = proves_pendents(iss, scale, source, cohort)
+        return {"meta": meta, "files": files, "pacients": len({f["pacient_id"] for f in files})}
+
+    @app.get("/api/export/pruebas-pendientes")
+    def exporta_proves(formato: Literal["csv", "xlsx"] = "xlsx", iss: str | None = q_iss,
+                       scale: Escala | None = q_scale, source: Font | None = q_source, cohort: Cohort = "demo") -> Response:
+        """Petició conjunta de les proves pendents, en CSV («;», UTF-8) o Excel."""
+        files, av, meta = proves_pendents(iss, scale, source, cohort)
+        if formato == "csv":
+            return Response(csv_proves(files), media_type="text/csv; charset=utf-8",
+                            headers={"Content-Disposition": 'attachment; filename="pruebas_pendientes.csv"'})
+        info = {"Datos de": meta["dades_de"], "Centro": meta.get("centre") or "—",
+                "Fecha de referencia": av.motor.avui.strftime("%d/%m/%Y"),
+                "Generada": datetime.now().strftime("%d/%m/%Y %H:%M")}
+        return Response(excel_proves(files, info),
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": 'attachment; filename="pruebas_pendientes.xlsx"'})
 
     @app.get("/api/rules")
     def rules() -> dict:

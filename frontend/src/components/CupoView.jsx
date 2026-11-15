@@ -166,13 +166,15 @@ export default function CupoView({ cupo, onRetry, filtro, onFiltro, busqueda, on
             k.sense_categoria ? ` · sin categoría ${num(k.sense_categoria)} (< 40 años: ${num(k.menors_edat_minima)}; faltan datos: ${num(k.falten_dades)})` : ""
           }`}
         />
-        <Kpi
-          icon={FlaskConical}
-          tono="bg-amber-50 text-amber-700"
-          titulo="UACR pendiente"
-          valor={num(k.uacr_pendent)}
-          detalle={`${num(k.mrc_no_diagnosticada)} con criterios de ERC sin diagnóstico · ${num(k.ben_tractats)} bien tratados (sin alerta)`}
-        />
+        <a href="#/pruebas" className="rounded-lg focus-visible:outline-2" title="Abrir la vista «Pruebas pendientes»">
+          <Kpi
+            icon={FlaskConical}
+            tono="bg-amber-50 text-amber-700"
+            titulo="Pruebas pendientes"
+            valor={num(k.proves_pendents)}
+            detalle={`pacientes (UACR ${num(k.uacr_pendent)}) · ${num(k.mrc_no_diagnosticada)} con criterios de ERC sin diagnóstico · ${num(k.ben_tractats)} bien tratados`}
+          />
+        </a>
       </section>
 
       <section className="rounded-lg border border-line bg-white shadow-xs" aria-label="Lista de trabajo">

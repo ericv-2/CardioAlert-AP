@@ -5,9 +5,13 @@ import { issEstacion, lanzamiento } from "./launch.js"; // antes de leer la ruta
 import Header from "./components/Header.jsx";
 import CupoView from "./components/CupoView.jsx";
 import PatientView from "./components/PatientView.jsx";
+import PruebasView from "./components/PruebasView.jsx";
 import RulesView from "./components/RulesView.jsx";
 
-const NAV = [{ href: "#/parametros", view: "parametros", label: "Parámetros del protocolo" }];
+const NAV = [
+  { href: "#/pruebas", view: "pruebas", label: "Pruebas pendientes" },
+  { href: "#/parametros", view: "parametros", label: "Parámetros del protocolo" },
+];
 
 // El add-on no tiene datos propios ni elige cohorte: lee los del servidor FHIR de la estación clínica que lo
 // ha abierto (`iss`) o, sin lanzamiento, los de la estación que la API tiene configurada.
@@ -17,6 +21,7 @@ function parseHash() {
   const [seg, id] = window.location.hash.replace(/^#\/?/, "").split("/");
   if (seg === "paciente" && id) return { view: "paciente", id: decodeURIComponent(id) };
   if (seg === "parametros") return { view: "parametros" };
+  if (seg === "pruebas") return { view: "pruebas" };
   return { view: "cupo" };
 }
 
@@ -95,6 +100,7 @@ export default function App() {
             onFiltroEstado={setFiltroEstado}
           />
         )}
+        {route.view === "pruebas" && <PruebasView cupo={cupo} sel={SEL} onRetry={recalcular} />}
         {route.view === "parametros" && <RulesView kpis={cupo.data?.kpis} recalculando={cupo.loading} onSaved={recalcular} />}
         {route.view === "paciente" && <PatientView id={route.id} sel={SEL} version={peticion.n} fuentes={cupo.data?.kpis.fonts} onEstado={refrescarEstados} />}
       </main>

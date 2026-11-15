@@ -160,4 +160,7 @@ motor:
     # sense tractament adequat, 3) risc "Alto" sense tractament, 4) la resta; dins de cada grup, per puntuació.
     # fge_descens (pèrdua ràpida de FGe) és urgent per decisió del metge (validat el 15/11/2026)
     alertes_urgents: [possible_ic, possible_fra, derivacio_nefrologia, fge_descens]
+    # Proves pendents: van a la vista "Pruebas pendientes" (petició conjunta). No sumen punts, no fan entrar
+    # ningú a "Hoy" i no tornen un pacient a "Pendiente".
+    alertes_fora_avui: [uacr_falta, creatinina_falta]
     pacients_avui: 10                 # mida del bloc "Hoy: N pacientes prioritarios"
