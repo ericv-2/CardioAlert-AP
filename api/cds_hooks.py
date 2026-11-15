@@ -37,6 +37,10 @@ SERVEI = {
 INDICADOR = {1: "critical", 2: "warning", 3: "warning", 4: "info"}
 MAX_SUMMARY = 140  # l'especificació demana un summary de menys de 140 caràcters
 EXTENSIO_APP = "cardioalert-app"  # clau de `extension` on el discovery anuncia la interfície de l'add-on
+TEMA_OBSERVACIO = "http://estacion-simulada.local/SubscriptionTopic/observacion-nueva-cupo"
+SUBSCRIPCIO = {"topic": TEMA_OBSERVACIO, "description": "Observation nueva de un paciente del cupo",
+               "channelType": "rest-hook", "endpoint": "/api/notificaciones", "payload": "application/fhir+json",
+               "content": "id-only"}
 
 
 def servei(url_app: str | None = None) -> dict:
@@ -50,6 +54,9 @@ def servei(url_app: str | None = None) -> dict:
         "launchUrl": url_app,
         "launchType": "smart-ehr-launch",
         "description": "Interfaz completa del add-on (lista «Hoy», cupo, ficha y parámetros). Lanzamiento simulado, sin OAuth.",
+        # Suscripció que l'add-on demana a l'estació en instal·lar-lo (FHIR Subscriptions, R4 Backport IG):
+        # Observation nova d'un pacient del cupo -> POST a `endpoint` (relatiu a la URL de l'add-on)
+        "subscription": SUBSCRIPCIO,
     }}}
 
 

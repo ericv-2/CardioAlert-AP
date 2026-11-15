@@ -19,6 +19,8 @@ Endpoints:
     GET  /api/estados                                         estat de cada alerta (Pendiente, Citado…) i llista «Hoy»
     POST /api/pacientes/{id}/estado                           canvia l'estat d'un pacient (queda al log d'auditoria)
     GET  /api/pacientes/{id}/auditoria, GET /api/auditoria    log d'auditoria dels canvis d'estat
+    GET  /api/actividad                                       registre d'activitat (AuditEvent), amb filtres
+    POST /api/notificaciones                                  notificació d'una FHIR Subscription de l'estació
     GET  /api/rules, POST /api/rules                          consulta i ajust dels llindars de rules.yaml
     GET  /cds-services                                        CDS Hooks: discovery (anuncia també la interfície)
     POST /cds-services/cardioalert-patient-view               CDS Hooks: targeta del hook patient-view
@@ -32,15 +34,31 @@ L'API no té lògica clínica: tot surt del motor (`engine/`) i de `config/rules
 FHIR es llegeix i s'avalua UN sol cop i es guarda en memòria (resultats i JSON ja serialitzat); es torna a
 llegir si l'estació canvia de cupo o de dades (ho diu el seu recurs Group) o amb `refresh=true`, i es torna
 a avaluar si canvia `rules.yaml` (es compara el contingut a cada petició). La fitxa i la targeta CDS llegeixen
-el pacient de l'estació a cada petició (`Patient/{id}/$everything`).
+el pacient de l'estació a cada petició (`Patient/{id}/$everything`) i en substitueixen el resultat al cupo en
+memòria (la fitxa i la llista «Hoy» sempre coincideixen).
+
+Actualització per esdeveniment (docs/decisions.md §17): en instal·lar l'add-on, l'estació registra una FHIR
+Subscription (R4 Backport IG) "Observation nova d'un pacient del cupo" que fa POST a /api/notificaciones. L'add-on
+recalcula només aquell pacient (agrupant les notificacions seguides del mateix pacient i descartant les repetides
+per la versió del recurs, `focus` amb `_history`) i dona per vista la versió nova del Group que porta la
+notificació (no torna a exportar el cupo). Si es perd un esdeveniment (salt a `event-number`), el cupo es torna a
+exportar sencer a la petició següent.
+
+Registre d'activitat: cada acció (fitxa, CDS Hooks, notificacions, recàlculs, lectures del cupo, canvis d'estat,
+exportacions, canvis de rules.yaml) queda com a recurs AuditEvent a `activitat.jsonl` del servidor FHIR. Qui: el
+professional del context de llançament (paràmetre `launch`, el mateix que rep la interfície) o "CardioAlert AP
+(automático)".
 
 La interfície (frontend/) corre al seu propi port; la seva URL s'anuncia al discovery (variable d'entorn
 CARDIOALERT_UI_URL, per defecte http://localhost:5173).
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import itertools
 import json
+import logging
 import os
 import re
 import threading
@@ -87,6 +105,77 @@ URL_FHIR_ESTACIO = "http://localhost:5174/fhir"  # servidor FHIR de l'estació s
 FHIR_PERMESOS = r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(/.*)?"
 # On l'add-on desa l'estat de les alertes i el log d'auditoria (un subdirectori per servidor FHIR)
 DIR_ESTATS = ARREL / "estat_addon"
+# Segons que s'espera després d'una notificació abans de recalcular el pacient: les analítiques seguides del
+# mateix pacient donen un sol recàlcul (CARDIOALERT_RETARD_NOTIFICACIONES; 0 = recalcula a l'instant)
+RETARD_NOTIFICACIONS = 1.0
+log = logging.getLogger("cardioalert")
+
+
+def professional_de(launch: str | None) -> dict | None:
+    """El professional del context de llançament (SMART simulat: JSON en base64url), per al registre."""
+    if not launch:
+        return None
+    try:
+        ctx = json.loads(base64.urlsafe_b64decode(launch + "=" * (-len(launch) % 4)).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    practitioner = ctx.get("practitioner") if isinstance(ctx, dict) else None
+    nom = practitioner.get("name") if isinstance(practitioner, dict) else None
+    if not isinstance(nom, str) or not nom.strip():
+        return None
+    return {"id": ctx.get("fhirUser"), "nom": nom.strip(), "rol": practitioner.get("role")}
+
+
+class CuaRecalculs:
+    """Recàlculs pendents per (servidor, pacient). Cada notificació torna a posar el rellotge a `retard`
+    segons: diverses analítiques seguides del mateix pacient donen un sol recàlcul."""
+
+    def __init__(self, retard: float, funcio: Callable[[tuple[str, str], int], None]):
+        self.retard, self.funcio = retard, funcio
+        self.pendents: dict[tuple[str, str], list] = {}  # clau -> [venciment, notificacions]
+        self._cv = threading.Condition()
+        self._fil: threading.Thread | None = None
+
+    def afegeix(self, clau: tuple[str, str]) -> str:
+        if self.retard <= 0:
+            self._executa(clau, 1)
+            return "hecho"
+        with self._cv:
+            n = self.pendents.get(clau, [0, 0])[1] + 1
+            self.pendents[clau] = [time.monotonic() + self.retard, n]
+            if self._fil is None:
+                self._fil = threading.Thread(target=self._bucle, name="cardioalert-recalculs", daemon=True)
+                self._fil.start()
+            self._cv.notify()
+        return "programado"
+
+    def _executa(self, clau: tuple[str, str], n: int) -> None:
+        try:
+            self.funcio(clau, n)
+        except Exception:  # un recàlcul que falla no atura la cua
+            log.exception("Recálculo de %s fallido", clau)
+
+    def _bucle(self) -> None:
+        while True:
+            with self._cv:
+                while not self.pendents:
+                    self._cv.wait()
+                ara = time.monotonic()
+                llestos = [k for k, (t, _) in self.pendents.items() if t <= ara]
+                if not llestos:
+                    self._cv.wait(timeout=max(0.01, min(t for t, _ in self.pendents.values()) - ara))
+                    continue
+                feina = [(k, self.pendents.pop(k)[1]) for k in llestos]
+            for clau, n in feina:
+                self._executa(clau, n)
+
+    def buida(self) -> None:
+        """Fa ara tots els recàlculs pendents (tests)."""
+        with self._cv:
+            feina = [(k, v[1]) for k, v in self.pendents.items()]
+            self.pendents.clear()
+        for clau, n in feina:
+            self._executa(clau, n)
 
 
 def regles_avui(r: ResultatPacient, config: dict) -> set[str]:
@@ -153,6 +242,19 @@ class Avaluacio:
     calculat_a: str = field(default_factory=lambda: _ara())  # hora de l'últim càlcul del cupo sencer
     files: dict[str, dict] = field(default_factory=dict)  # fila JSON de cada pacient (per refer json_cos)
     recalculats: dict[str, str] = field(default_factory=dict)  # pacient -> hora del recàlcul individual
+    versio: int = 0  # canvia amb cada canvi del cupo en memòria (la interfície ho consulta amb un poll lleuger)
+
+
+def _text_canvi(v) -> str:
+    """Un canvi de rules.yaml per al registre: «abans → ara» si el magatzem ho diu així."""
+    if isinstance(v, dict):
+        abans = next((v[k] for k in ("abans", "anterior", "old") if k in v), None)
+        ara = next((v[k] for k in ("ara", "nou", "valor", "new") if k in v), None)
+        if abans is not None or ara is not None:
+            return f"{abans} → {ara}"
+    if isinstance(v, (list, tuple)) and len(v) == 2:
+        return f"{v[0]} → {v[1]}"
+    return str(v)
 
 
 def _ara() -> str:
@@ -176,14 +278,16 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
                remote_factory: Callable[[], Connector] | None = None, remot_public: bool = False,
                dades_realista: str | Path = DADES_REALISTA, url_interficie: str | None = None,
                font_per_defecte: Font = "ehr", url_fhir: str | None = None, fhir_permesos: str | None = None,
-               client_fhir: httpx.Client | None = None, dir_estats: str | Path | None = None) -> FastAPI:
+               client_fhir: httpx.Client | None = None, dir_estats: str | Path | None = None,
+               retard_notificacions: float | None = None) -> FastAPI:
     """font_per_defecte: d'on es llegeix si la petició no porta `source` ("ehr" = el servidor FHIR de
     l'estació; "local" i "remote" queden per als tests i com a exemple d'altres fonts).
     url_fhir: servidor FHIR de l'estació si la petició no porta `iss` / `fhirServer` (per defecte,
     CARDIOALERT_FHIR_URL o http://localhost:5174/fhir). fhir_permesos: expressió regular dels servidors FHIR
     acceptats (per defecte, CARDIOALERT_FHIR_PERMITIDOS o només aquest ordinador). client_fhir: client HTTP
     per parlar amb l'estació (tests). dir_estats: carpeta dels estats de les alertes i del log d'auditoria
-    (per defecte, CARDIOALERT_ESTADOS_DIR o estat_addon/ a l'arrel del repositori).
+    (per defecte, CARDIOALERT_ESTADOS_DIR o estat_addon/ a l'arrel del repositori). retard_notificacions:
+    segons d'espera abans de recalcular un pacient notificat (per defecte, CARDIOALERT_RETARD_NOTIFICACIONES o 1).
     remote_factory: funció que retorna el connector remot (pot fallar o trigar: llavors es fa servir
     el local i la resposta porta un avís). remot_public=True: si no es passa cap factory, es fa servir el
     servidor públic de HAPI (FhirRemoteConnector). dades_realista: carpeta CSV de la cohort realista.
@@ -212,6 +316,15 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
     memoria: dict = {"empremta": None, "config": None, "avaluacions": {}}
     estacions: dict[str, FhirEhrConnector] = {}  # un connector per servidor FHIR, amb el seu cupo en memòria
     pany = threading.RLock()  # una sola descàrrega i un sol càlcul encara que arribin peticions alhora
+    comptador = itertools.count(1)  # versió del cupo en memòria (Avaluacio.versio)
+    # Notificacions: versions del Group ja incorporades amb recàlculs (no cal tornar a exportar), servidors que
+    # s'han de tornar a exportar (s'ha perdut un esdeveniment), notificacions ja vistes i últim event-number
+    absorbides: dict[str, set[str]] = {}
+    per_reexportar: set[str] = set()
+    vistes: dict[str, set[str]] = {}
+    ultim_event: dict[str, int] = {}
+    if retard_notificacions is None:
+        retard_notificacions = float(os.environ.get("CARDIOALERT_RETARD_NOTIFICACIONES", RETARD_NOTIFICACIONS))
 
     def config_actual() -> dict:
         """rules.yaml tal com és ara. Si ha canviat, cap avaluació guardada serveix (les dades llegides, sí)."""
@@ -246,19 +359,34 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
         con = estacio(url)
         try:
             cupo, sistema = con.cupo(), con.sistema()
+            estats.nom_estacio[url] = sistema
             with pany:
-                if refresca or con.cupo_carregat is None or con.cupo_carregat.empremta != cupo.empremta:
+                carregat = con.cupo_carregat
+                # Una versió del Group que ja s'ha incorporat amb notificacions no obliga a tornar a exportar
+                absorbida = (carregat is not None and carregat.id == cupo.id and carregat.pacients == cupo.pacients
+                             and cupo.versio in absorbides.get(url, set()))
+                if refresca or url in per_reexportar or carregat is None or (carregat.empremta != cupo.empremta
+                                                                              and not absorbida):
+                    motiu = ("Botón «Actualizar»" if refresca else "Primera lectura" if carregat is None
+                             else "Se ha perdido una notificación" if url in per_reexportar
+                             else "Cambio de cupo o de pacientes en la estación")
                     con.carrega_cupo(cupo)
+                    absorbides[url] = set()
+                    per_reexportar.discard(url)
                     for clau in [c for c in memoria["avaluacions"] if c[:2] == ("ehr", url)]:
                         del memoria["avaluacions"][clau]
+                    estats.activitat(url, "lectura-cupo", None, None,
+                                     f"{motiu}: {cupo.nom}, {len(con.get_patients())} pacientes "
+                                     f"(Bulk Data, {con.segons_lectura} s)", estacio=sistema)
                 return con, _meta_estacio(url, sistema, con.cupo_carregat, len(con.get_patients()))
         except ErrorFhirEhr as exc:
             raise error_estacio(url, exc) from None
 
     def pacient_estacio(url: str, pacient_id: str, estat_http: int = 502) -> DadesPacient:
-        """Un pacient llegit ara mateix de l'estació (`Patient/{id}/$everything`)."""
+        """Un pacient llegit ara mateix de l'estació (`Patient/{id}/$everything`). Si el cupo és en memòria,
+        el connector hi substitueix les dades del pacient."""
         try:
-            return estacio(url).llegeix_pacient(pacient_id)
+            return estacio(url).actualitza_pacient(pacient_id)
         except KeyError:
             raise HTTPException(404, f"Paciente {pacient_id} no encontrado en la estación clínica") from None
         except ErrorFhirEhr as exc:
@@ -326,7 +454,8 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
                 files = {r.pacient_id: _fila(r) for r in resultats}
                 av = Avaluacio(m, resultats, {r.pacient_id: r for r in resultats}, _cos(resultats, files),
                                round(time.perf_counter() - inici, 3),
-                               con.segons_lectura if font == "ehr" else None, info_estacio, servidor, files=files)
+                               con.segons_lectura if font == "ehr" else None, info_estacio, servidor, files=files,
+                               versio=next(comptador))
                 memoria["avaluacions"][clau] = av
         if font == "ehr":
             origen = dict(av.estacio)
@@ -375,6 +504,76 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
         except KeyError:
             raise HTTPException(404, f"Paciente {pacient_id} no encontrado") from None
 
+    # --- Un pacient amb dades noves: substitució al cupo en memòria -----------------------------
+
+    def substitueix(servidor: str, d: DadesPacient, escala: Escala | None, res: ResultatPacient | None = None,
+                    marca: bool = False) -> tuple[ResultatPacient | None, int | None]:
+        """Substitueix el resultat d'un pacient a tots els cupos en memòria d'aquest servidor (la llista es
+        reordena). Si el resultat no ha canviat, no es toca res. Retorna (resultat anterior, posició nova) a
+        l'escala demanada. `marca`: desa l'hora del recàlcul encara que no hagi canviat res."""
+        pid = d.pacient.id
+        abans = posicio = None
+        with pany:
+            for clau, av in memoria["avaluacions"].items():
+                if av.servidor != servidor:
+                    continue
+                nou = res if res is not None and clau[-1] == escala else av.motor.avalua_dades(d)
+                anterior = av.per_id.get(pid)
+                fila = _fila(nou)
+                if marca:
+                    av.recalculats[pid] = _ara()
+                if anterior is None or av.files.get(pid) != fila:
+                    av.resultats = sorted([r for r in av.resultats if r.pacient_id != pid] + [nou], key=RiskEngine.clau_ordre)
+                    av.per_id[pid] = nou
+                    av.files[pid] = fila
+                    av.json_cos = _cos(av.resultats, av.files)
+                    av.recalculats[pid] = _ara()
+                    av.versio = next(comptador)
+                else:
+                    nou = anterior
+                if clau[-1] == escala:
+                    abans, posicio = anterior, av.resultats.index(nou) + 1
+        return abans, posicio
+
+    def aplica_recalcul(servidor: str, con: Connector, d: DadesPacient, escala: Escala | None, inici: float,
+                        qui: dict | None, motiu: str) -> dict:
+        """Avalua un pacient amb dades noves, el substitueix al cupo, sincronitza el seu estat (una alerta NOVA el
+        torna a «Pendiente») i ho deixa al registre d'activitat."""
+        m = RiskEngine(con, config_actual(), escala=escala)
+        res = m.avalua_dades(d)
+        abans, posicio = substitueix(servidor, d, escala, res, marca=True)
+        regles_ara, regles_abans = res.regles_actives(), abans.regles_actives() if abans else set()
+        noves, resoltes = (sorted(regles_ara - regles_abans) if abans else []), sorted(regles_abans - regles_ara)
+        estat = estat_pacient(servidor, res, m.avui)
+        detall = (f"{motiu}. Alertas nuevas: {', '.join(noves) or 'ninguna'}; resueltas: {', '.join(resoltes) or 'ninguna'}"
+                  + (f"; posición en la lista: {posicio}" if posicio else "") + f"; estado: {estat['estat']}")
+        estats.activitat(servidor, "recalculo", qui, d.pacient.id, detall)
+        return {
+            "pacient_id": d.pacient.id, "recalculat_a": _ara(), "segons": round(time.perf_counter() - inici, 3),
+            "abans": ({"grup_ordre": abans.grup_ordre, "puntuacio_prioritat": abans.puntuacio_prioritat,
+                       "categoria_risc_cv": abans.categoria_risc_cv} if abans else None),
+            "ara": {"grup_ordre": res.grup_ordre, "puntuacio_prioritat": res.puntuacio_prioritat,
+                    "categoria_risc_cv": res.categoria_risc_cv, "posicio": posicio},
+            "alertes_noves": noves,
+            "alertes_resoltes": resoltes,
+            "estat": estat,
+        }
+
+    def recalcul_notificat(clau: tuple[str, str], n: int) -> None:
+        """Recàlcul d'un pacient notificat per l'estació (des de la cua)."""
+        url, pid = clau
+        inici = time.perf_counter()
+        try:
+            d = estacio(url).actualitza_pacient(pid)
+        except (KeyError, ErrorFhirEhr) as exc:
+            estats.activitat(url, "recalculo", None, pid, f"No se ha podido leer el paciente de la estación: {exc}", "4")
+            return
+        aplica_recalcul(url, estacio(url), d, None, inici, None,
+                        "Dato nuevo en la estación" + (f" ({n} notificaciones agrupadas)" if n > 1 else ""))
+
+    cua = CuaRecalculs(retard_notificacions, recalcul_notificat)
+    app.state.cua_recalculs = cua
+
     @app.get("/api/health")
     def health() -> dict:
         return {"ok": True}
@@ -400,6 +599,8 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
     q_source = Query(None, description="Otras fuentes, para pruebas: local (ficheros) o remote (HAPI). "
                                        "Por defecto, ehr: el servidor FHIR de la estación")
     q_scale = Query(None, description="Por defecto, la de rules.yaml")
+    q_launch = Query(None, description="Contexto de lanzamiento de la estación (SMART simulado): el profesional "
+                                       "que queda en el registro de actividad")
 
     @app.get("/api/cupo")
     def cupo(iss: str | None = q_iss, scale: Escala | None = q_scale,
@@ -412,7 +613,7 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
 
     @app.post("/api/pacientes/{pacient_id}/recalcular")
     def recalcula(pacient_id: str, iss: str | None = q_iss, scale: Escala | None = q_scale,
-                  source: Font | None = q_source, cohort: Cohort = "demo") -> dict:
+                  source: Font | None = q_source, cohort: Cohort = "demo", launch: str | None = q_launch) -> dict:
         """Torna a llegir un pacient i el recalcula, sense tornar a exportar el cupo (és el que passaria en
         arribar-ne una analítica nova). Substitueix el resultat als cupos en memòria d'aquest servidor (la llista
         es reordena) i, si hi ha alguna alerta nova, el pacient torna a «Pendiente»."""
@@ -433,42 +634,78 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
                 d = con.get_patient_data(pacient_id)
             except KeyError:
                 raise HTTPException(404, f"Paciente {pacient_id} no encontrado") from None
-        m = RiskEngine(con, config_actual(), escala=scale)
-        res = m.avalua_dades(d)
-        ara = _ara()
-        abans = posicio = None
-        with pany:
-            for clau, av in memoria["avaluacions"].items():
-                if av.servidor != servidor:
-                    continue
-                nou = res if clau[-1] == scale else av.motor.avalua_dades(d)
-                if clau[-1] == scale:
-                    abans = av.per_id.get(pacient_id)
-                av.resultats = sorted([r for r in av.resultats if r.pacient_id != pacient_id] + [nou], key=RiskEngine.clau_ordre)
-                av.per_id[pacient_id] = nou
-                av.files[pacient_id] = _fila(nou)
-                av.json_cos = _cos(av.resultats, av.files)
-                av.recalculats[pacient_id] = ara
-                if clau[-1] == scale:
-                    posicio = av.resultats.index(nou) + 1
-        regles_ara, regles_abans = res.regles_actives(), abans.regles_actives() if abans else set()
-        return {
-            "pacient_id": pacient_id, "recalculat_a": ara, "segons": round(time.perf_counter() - inici, 3),
-            "abans": ({"grup_ordre": abans.grup_ordre, "puntuacio_prioritat": abans.puntuacio_prioritat,
-                       "categoria_risc_cv": abans.categoria_risc_cv} if abans else None),
-            "ara": {"grup_ordre": res.grup_ordre, "puntuacio_prioritat": res.puntuacio_prioritat,
-                    "categoria_risc_cv": res.categoria_risc_cv, "posicio": posicio},
-            "alertes_noves": sorted(regles_ara - regles_abans) if abans else [],
-            "alertes_resoltes": sorted(regles_abans - regles_ara),
-            "estat": estat_pacient(servidor, res, m.avui),
-        }
+        return aplica_recalcul(servidor, con, d, scale, inici, professional_de(launch), "Botón «Recalcular paciente»")
+
+    @app.post("/api/notificaciones")
+    def notificacio(bundle: dict = Body(...)) -> dict:
+        """Notificació d'una FHIR Subscription de l'estació (R4 Backport IG, contingut id-only): un Bundle
+        "history" amb el SubscriptionStatus (Parameters). Per cada `notification-event`, el pacient
+        (`additional-context` Patient/…) es recalcula (agrupat, vegeu CuaRecalculs); si la mateixa versió del
+        recurs (`focus` amb `_history`) ja s'havia rebut, no es recalcula. La versió nova del Group
+        (`additional-context` Group/…/_history/…) queda incorporada: no cal tornar a exportar el cupo."""
+        entrades = bundle.get("entry") if isinstance(bundle, dict) else None
+        estat_sub = entrades[0].get("resource") if isinstance(entrades, list) and entrades and isinstance(entrades[0], dict) else None
+        if not isinstance(estat_sub, dict) or estat_sub.get("resourceType") != "Parameters":
+            raise HTTPException(400, "Se esperaba un Bundle de notificación con el SubscriptionStatus (Parameters)")
+        params = estat_sub.get("parameter") or []
+
+        def valor(nom: str) -> dict:
+            return next((p for p in params if p.get("name") == nom), {})
+
+        ref_sub = (valor("subscription").get("valueReference") or {}).get("reference") or ""
+        if "/Subscription/" not in ref_sub:
+            raise HTTPException(400, "Falta la referencia a la Subscription")
+        url = url_estacio(ref_sub.rsplit("/Subscription/", 1)[0])  # només estacions permeses
+        tipus = valor("type").get("valueCode")
+        if tipus != "event-notification":  # handshake / heartbeat: només es confirma
+            estats.activitat(url, "notificacion", None, None, f"{tipus or 'Notificación sin tipo'} ({ref_sub})")
+            return {"recibida": True, "tipo": tipus, "eventos": []}
+        resultat = []
+        for ev in (p for p in params if p.get("name") == "notification-event"):
+            parts = ev.get("part") or []
+            ref = lambda x: (x.get("valueReference") or {}).get("reference", "")  # noqa: E731
+            focus = next((ref(x) for x in parts if x.get("name") == "focus"), "")
+            context = [ref(x) for x in parts if x.get("name") == "additional-context"]
+            numero = next((x.get("valueString") for x in parts if x.get("name") == "event-number"), None)
+            pacient = next((r.split("Patient/", 1)[1].split("/")[0] for r in context if "Patient/" in r), None)
+            grup = next((r for r in context if "Group/" in r and "/_history/" in r), None)
+            if not pacient:
+                estats.activitat(url, "notificacion", None, None, f"Evento {numero} sin paciente: {focus}", "4")
+                resultat.append({"evento": numero, "error": "sin paciente"})
+                continue
+            clau_vista = focus if "/_history/" in focus else f"{focus}|{numero}"
+            with pany:
+                duplicada = clau_vista in vistes.setdefault(url, set())
+                vistes[url].add(clau_vista)
+                try:
+                    n = int(numero)
+                except (TypeError, ValueError):
+                    n = None
+                anterior = ultim_event.get(ref_sub)
+                if n is not None and anterior is not None and n > anterior + 1:
+                    per_reexportar.add(url)  # s'ha perdut algun esdeveniment: el cupo sencer a la propera lectura
+                if n is not None and (anterior is None or n > anterior):
+                    ultim_event[ref_sub] = n
+                if grup and not duplicada:
+                    absorbides.setdefault(url, set()).add(grup.rsplit("/_history/", 1)[1])
+            recurs = focus.split("/_history/")[0].rsplit("/", 2)
+            recurs = "/".join(recurs[-2:]) if len(recurs) >= 2 else focus
+            if duplicada:
+                estats.activitat(url, "notificacion", None, pacient,
+                                 f"Evento {numero}: {recurs} (repetida, ya recibida: no se recalcula)")
+                resultat.append({"evento": numero, "paciente": pacient, "duplicada": True, "recalculo": None})
+                continue
+            estats.activitat(url, "notificacion", None, pacient, f"Evento {numero}: {recurs} nueva en la estación")
+            resultat.append({"evento": numero, "paciente": pacient, "duplicada": False,
+                             "recalculo": cua.afegeix((url, pacient))})
+        return {"recibida": True, "tipo": tipus, "eventos": resultat}
 
     @app.get("/api/estados")
     def estados(iss: str | None = q_iss, scale: Escala | None = q_scale, source: Font | None = q_source,
                 cohort: Cohort = "demo") -> dict:
         """Només l'estat de les alertes i la llista «Hoy» (el cupo ja avaluat no es torna a enviar)."""
         av, _ = avaluacio(source, scale, cohort, iss)
-        return {"calculat_a": av.calculat_a, **estats_cupo(av)}
+        return {"calculat_a": av.calculat_a, "versio_cupo": av.versio, **estats_cupo(av)}
 
     def resultat_actual(pacient_id: str, iss: str | None, scale: Escala | None, source: Font | None,
                         cohort: Cohort) -> tuple[str, ResultatPacient, RiskEngine]:
@@ -515,9 +752,22 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
         servidor = servidor_estats(iss, source, cohort)
         return {"servidor": servidor, "auditoria": estats.auditoria(servidor, limit=limit)}
 
+    @app.get("/api/actividad")
+    def actividad(iss: str | None = q_iss, source: Font | None = q_source, cohort: Cohort = "demo",
+                  paciente: str | None = None, profesional: str | None = None, tipo: str | None = None,
+                  limit: int = Query(500, ge=1, le=10_000), formato: Literal["resumen", "fhir"] = "resumen") -> dict:
+        """Registre d'activitat d'aquest servidor FHIR (el més recent primer). `formato=fhir`: Bundle d'AuditEvent."""
+        servidor = servidor_estats(iss, source, cohort)
+        r = estats.consulta_activitat(servidor, paciente, profesional, tipo, limit)
+        if formato == "fhir":
+            recursos = estats.audit_events(servidor, {e["id"] for e in r["entrades"]})
+            return {"resourceType": "Bundle", "type": "searchset", "total": r["total"],
+                    "entry": [{"resource": e} for e in recursos]}
+        return {"servidor": servidor, **r}
+
     @app.get("/api/pacientes/{pacient_id}")
     def pacient(pacient_id: str, iss: str | None = q_iss, scale: Escala | None = q_scale,
-                source: Font | None = q_source, cohort: Cohort = "demo") -> dict:
+                source: Font | None = q_source, cohort: Cohort = "demo", launch: str | None = q_launch) -> dict:
         if (source or font_per_defecte) == "ehr":
             # La fitxa llegeix el pacient de l'estació ara mateix: no espera l'exportació del cupo sencer
             inici = time.perf_counter()
@@ -530,6 +780,7 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
                 raise error_estacio(url, exc) from None
             m = RiskEngine(con, config_actual(), escala=scale)
             res = m.avalua_dades(d)
+            substitueix(url, d, scale, res)  # la llista «Hoy» queda igual que la fitxa
             meta = {"font_demanada": "ehr", "cohort_demanada": None, **origen, **_meta_motor(m), "en_memoria": False,
                     "segons_calcul": round(time.perf_counter() - inici, 3), "segons_lectura": None}
             servidor = url
@@ -540,6 +791,7 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             d = m.connector.get_patient_data(pacient_id)
             servidor = av.servidor
         d = m.minimitza(d)  # la fitxa tampoc mostra res fora de la finestra de dades del motor
+        estats.activitat(servidor, "consulta-ficha", professional_de(launch), pacient_id)
         return {
             "meta": meta,
             "pacient": res.to_dict(),
@@ -559,9 +811,11 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
 
     @app.get("/api/export/excel")
     def excel(iss: str | None = q_iss, scale: Escala | None = q_scale, source: Font | None = q_source,
-              cohort: Cohort = "demo") -> Response:
+              cohort: Cohort = "demo", launch: str | None = q_launch) -> Response:
         """Descarrega el cupo complet (totes les columnes, textos sencers) en .xlsx."""
         av, meta = avaluacio(source, scale, cohort, iss)
+        estats.activitat(av.servidor, "exportacion", professional_de(launch), None,
+                         f"Cupo evaluado en Excel ({len(av.resultats)} pacientes)")
         font = meta["font_etiqueta"] + (f" (servidor FHIR: {meta['fhir_server']})" if meta["fhir_server"] else "")
         info = meta_avaluacio(av.motor, font)
         info["Cohorte"] = meta["cohort_etiqueta"]
@@ -585,9 +839,13 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
 
     @app.get("/api/export/pruebas-pendientes")
     def exporta_proves(formato: Literal["csv", "xlsx"] = "xlsx", iss: str | None = q_iss,
-                       scale: Escala | None = q_scale, source: Font | None = q_source, cohort: Cohort = "demo") -> Response:
+                       scale: Escala | None = q_scale, source: Font | None = q_source, cohort: Cohort = "demo",
+                       launch: str | None = q_launch) -> Response:
         """Petició conjunta de les proves pendents, en CSV («;», UTF-8) o Excel."""
         files, av, meta = proves_pendents(iss, scale, source, cohort)
+        estats.activitat(av.servidor, "exportacion", professional_de(launch), None,
+                         f"Pruebas pendientes en {'CSV' if formato == 'csv' else 'Excel'} "
+                         f"({len(files)} pruebas de {len({f['pacient_id'] for f in files})} pacientes)")
         if formato == "csv":
             return Response(csv_proves(files), media_type="text/csv; charset=utf-8",
                             headers={"Content-Disposition": 'attachment; filename="pruebas_pendientes.csv"'})
@@ -604,7 +862,8 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
         return {"config": config, "editables": store.editables(config), "backups": len(store.backups())}
 
     @app.post("/api/rules")
-    def desa_rules(canvis: dict = Body(..., embed=True, examples=[{"rules.uacr_falta.max_mesos_sense_prova": 18}])) -> dict:
+    def desa_rules(canvis: dict = Body(..., embed=True, examples=[{"rules.uacr_falta.max_mesos_sense_prova": 18}]),
+                   iss: str | None = q_iss, launch: str | None = q_launch) -> dict:
         """Cos: {"canvis": {"<camí>": <valor>, ...}}. Només els paràmetres de `editables`."""
         def prova(config: dict) -> None:
             # Banc de proves de la configuració nova: els fitxers de la cohort demo i els cupos d'estació
@@ -618,6 +877,11 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             resultat_desa = store.aplica(canvis, prova)
         except ErrorValidacio as exc:
             raise HTTPException(422, {"missatge": "Valores no válidos: no se ha guardado nada", "errors": exc.errors}) from None
+        if resultat_desa["canviats"]:
+            servidor = url_estacio(iss) if font_per_defecte == "ehr" else "local:demo"
+            fets = "; ".join(f"{k}: {_text_canvi(v)}" for k, v in resultat_desa["canviats"].items())
+            estats.activitat(servidor, "cambio-parametros", professional_de(launch), None,
+                             f"{fets} (copia: {resultat_desa['backup']})")
         config = store.carrega()
         return {**resultat_desa, "config": config, "editables": store.editables(config), "backups": len(store.backups())}
 
@@ -652,11 +916,27 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
             url = url_estacio(servidor)
             con = estacio(url)
             d = pacient_estacio(url, pacient_id, estat_http=412)
+        context = peticio.get("context") if isinstance(peticio.get("context"), dict) else {}
+        usuari = context.get("userId") if isinstance(context.get("userId"), str) else None
+        qui = {"id": usuari, "nom": usuari or "Usuario no identificado", "rol": None}
         if d is not None:  # el motor només fa servir el connector per llegir; aquí les dades ja hi són
             m = RiskEngine(con, config, escala=scale)
-            return {"cards": [cds_hooks.targeta(m.avalua_dades(d), m.motor["guia"], url_interficie)]}
+            res = m.avalua_dades(d)
+            targeta = cds_hooks.targeta(res, m.motor["guia"], url_interficie)
+            servidor_log = None
+            if servidor and patro_fhir.fullmatch(servidor.rstrip("/")):
+                servidor_log = servidor.rstrip("/")
+                substitueix(servidor_log, d, scale, res)  # la llista «Hoy» queda igual que la targeta
+            elif not servidor and font_per_defecte == "ehr":
+                servidor_log = url_fhir
+            if servidor_log:
+                estats.activitat(servidor_log, "cds-hook", qui, pacient_id,
+                                 f"Tarjeta «{targeta['indicator']}»: {targeta['summary']}")
+            return {"cards": [targeta]}
         av, _ = avaluacio(source, scale, cohort)
-        return {"cards": [cds_hooks.targeta(resultat(av, pacient_id), av.motor.motor["guia"], url_interficie)]}
+        targeta = cds_hooks.targeta(resultat(av, pacient_id), av.motor.motor["guia"], url_interficie)
+        estats.activitat(av.servidor, "cds-hook", qui, pacient_id, f"Tarjeta «{targeta['indicator']}»: {targeta['summary']}")
+        return {"cards": [targeta]}
 
     return app
 
