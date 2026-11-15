@@ -4,6 +4,7 @@
     python -m engine P003               nota clínica d'un pacient
     python -m engine --excel            exporta el cupo a exports/cupo_evaluado.xlsx
     python -m engine --escala regicor   qualsevol de les anteriors amb REGICOR
+    python -m engine --rules-excel      full de revisió de les regles per al metge (exports/revision_reglas.xlsx)
 """
 from __future__ import annotations
 
@@ -50,7 +51,14 @@ def main(argv: list[str]) -> None:
     parser.add_argument("--excel", nargs="?", const="", metavar="FITXER",
                         help="exporta el cupo a Excel (per defecte exports/cupo_evaluado.xlsx)")
     parser.add_argument("--escala", choices=MODES_ESCALA, help="escala de risc CV (per defecte, la de rules.yaml)")
+    parser.add_argument("--rules-excel", nargs="?", const="", metavar="FITXER",
+                        help="full de revisió clínica de les regles (per defecte exports/revision_reglas.xlsx)")
     args = parser.parse_args(argv)
+
+    if args.rules_excel is not None:
+        from .export_revisio import CAMI_DEFECTE as CAMI_REVISIO, exporta_revisio
+        print(f"Excel de revisión escrito: {exporta_revisio(args.rules_excel or CAMI_REVISIO)}")
+        return
 
     motor = RiskEngine(FhirConnector(ARREL / "data" / "synthetic" / "fhir"), escala=args.escala)
     if args.pacient:
