@@ -121,7 +121,7 @@ def test_rules_canvi_valid_fa_backup_i_recalcula(client, rules):
     backup = rules.parent / "backups" / cos["backup"]
     assert backup.read_text(encoding="utf-8") == original and cos["backups"] == 1
     nou = rules.read_text(encoding="utf-8")
-    assert "PENDENTS DE VALIDACIÓ PEL METGE" in nou and "# UACR" in nou
+    assert "ESTAT DE VALIDACIÓ" in nou and "# UACR" in nou
     cfg = yaml.safe_load(nou)
     assert cfg["rules"]["uacr_falta"]["max_mesos_sense_prova"] == 48
     assert cfg["rules"]["risc_cardiovascular"]["talls_per_edat"][1] == {"edat_max": 69, "alt": 9.5, "molt_alt": 10}

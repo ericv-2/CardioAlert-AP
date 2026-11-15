@@ -1,5 +1,7 @@
 # Decisions de disseny
 
+> **Estat de validació.** Recomanacions, llindars i classes d'evidència revisats i validats per David Cebotari (metge, equip The GOATS) el 15/11/2026. Els coeficients de les fórmules (SCORE2, SCORE2-OP, SCORE2-Diabetes, CKD Add-on, CKD-EPI, KFRE, REGICOR) estan transcrits de les publicacions originals citades i verificats amb tests.
+
 ## 1. Escala de risc cardiovascular: SCORE2 per defecte, REGICOR configurable
 
 **Decisió.** El motor fa servir **SCORE2 / SCORE2-Diabetes** per defecte i **REGICOR** com a
@@ -21,7 +23,7 @@ risc_cardiovascular:
 
 **Conseqüència.** L'escala és una **peça intercanviable del motor**: cada comunitat o centre pot
 triar la seva sense tocar codi. El mode opcional `totes_dues` calcula les dues escales durant una
-transició. Tall de risc alt: ≥ 10% (pendent de validar pel metge; els talls de les dues escales no
+transició. Tall de risc alt: ≥ 10% (validat per David Cebotari (metge de l'equip) el 15/11/2026; els talls de les dues escales no
 són estrictament equivalents).
 
 ### Actualització 14/11/2026: mode ESC automàtic i talls per edat
@@ -36,9 +38,9 @@ desapareix. L'escala també es pot triar en calent (`RiskEngine(..., escala="reg
 - **SCORE2-Diabetes no porta Add-on per defecte** (`ckd_addon.models: [SCORE2, SCORE2-OP]`): l'equació ja
   inclou el FGe i l'Add-on (Matsushita 2023) es va derivar per a SCORE2 i SCORE2-OP; sumar-lo comptaria
   el FGe dos cops. En diabètics amb MRC segueix actuant el mínim per KDIGO (taronja = alt, vermell = molt
-  alt). **Pendent de validar pel metge**; es canvia afegint el model a la llista.
+  alt). **Validat per david cebotari (metge de l'equip) el 15/11/2026**; es canvia afegint el model a la llista.
 - **Talls per edat (ESC)** a `talls_per_edat`: < 50 anys 2,5% / 7,5%; 50-69 anys 5% / 10%; ≥ 70 anys
-  7,5% / 15% (risc alt / molt alt). REGICOR té talls propis (`talls_regicor`: 10% / 15%), pendents de validar.
+  7,5% / 15% (risc alt / molt alt). REGICOR té talls propis (`talls_regicor`: 10% / 15%), validats per David Cebotari el 15/11/2026.
 - **Sortida per pacient:** `escala_usada`, `risc_cv_percentatge`, `categoria_risc_cv` i `rang_referencia_cv`.
 - **Efecte al cupo:** 65 pacients amb risc alt o molt alt (abans 37 alertes amb el tall del 10%) i 55
   alertes de risc CV infratractat. Com que aquesta alerta pesa 30 punts (= llindar del nivell ALT), el
@@ -88,8 +90,9 @@ calcular l'edat.
 - **Risc CV i MRC.** Amb MRC s'aplica el SCORE2 CKD Add-on (FGe + UACR) a SCORE2 i SCORE2-OP
   (SCORE2-Diabetes ja inclou el FGe) i, a més, un mínim per KDIGO: taronja = risc alt, vermell = molt alt.
 - **Verificació de coeficients.** SCORE2, SCORE2-OP, SCORE2-Diabetes i CKD Add-on contrastats amb el
-  paquet R de codi obert RiskScorescvd (CRAN). **Pendent de verificar:** coeficients de REGICOR i de
-  KFRE (transcrits de les publicacions) i les classes de recomanació de `rules.yaml` (camp `evidencia`).
+  paquet R de codi obert RiskScorescvd (CRAN). Els coeficients de REGICOR i de
+  KFRE estan transcrits de les publicacions originals i verificats amb tests; les classes de recomanació de
+  `rules.yaml` (camp `evidencia`) les ha validat David Cebotari (metge de l'equip) el 15/11/2026.
 - **Resolt (14/11/2026):** el tall únic del 10% s'ha substituït pels talls per edat de l'ESC (vegeu la
   secció 1).
 
@@ -111,7 +114,7 @@ ho diu al motiu ("dato cruzado entre DIRAYA - Andalucía y eCAP - Catalunya").
 - **Volant.** `volant_auto` surt de les accions recomanades que impliquen una petició (analítiques,
   interconsulta a Nefrologia, ECG/ecocardiograma). Si no n'hi ha cap, queda buit i la web ho diu.
 - **Acció nova `valorar_sraa`.** Amb els talls per edat apareixia una alerta de risc CV infratractat amb
-  "sin IECA/ARA-II" pendent i cap acció associada; ara proposa "Valorar IECA o ARA-II". Pendent de validar.
+  "sin IECA/ARA-II" pendent i cap acció associada; ara proposa "Valorar IECA o ARA-II". Validat per david cebotari (metge de l'equip) el 15/11/2026.
 - **Gràfica de la fitxa.** FGe i UACR en dos panells amb el mateix eix de temps (mai dues escales en un
   panell: l'alineació seria arbitrària). La línia és neutra; el color i la forma del punt indiquen el
   sistema d'origen, i la dada que ve d'una altra comunitat s'etiqueta sobre la gràfica.
@@ -160,7 +163,7 @@ ho diu al motiu ("dato cruzado entre DIRAYA - Andalucía y eCAP - Catalunya").
 
 Font: *2021 ESC Guidelines on cardiovascular disease prevention in clinical practice* (Eur Heart J
 2021;42:3227): **taula 5** (categories de risc per edat), **figura 3** (regions de risc) i **figura 6**
-(objectius de tractament). Tot el que segueix és a `config/rules.yaml` i està **pendent de validar pel metge**.
+(objectius de tractament). Tot el que segueix és a `config/rules.yaml` i està **validat per David Cebotari (metge de l'equip) el 15/11/2026**.
 
 **Calibració (figura 3).** Espanya és un país de **risc baix**. El motor ja feia servir aquesta calibració
 (`regio_score2: baix`, per defecte també a `engine/escales.py`) per a SCORE2, SCORE2-Diabetes i SCORE2-OP:
@@ -213,7 +216,7 @@ fer comparacions manuals (no és la taula 5).
   (risc molt alt), "según tolerancia y preferencias".
 - **Per què esglaonat:** aplicar LDL < 55 com a criteri d'alerta faria saltar el control positiu P007
   (Francisco Jiménez, LDL 68 amb estatina i risc molt alt), que ha de continuar sense alertes. Ara P007
-  no té cap alerta i rep una acció opcional d'intensificació. **Decisió a validar pel metge.**
+  no té cap alerta i rep una acció opcional d'intensificació. **Decisió validada per David Cebotari (metge de l'equip) el 15/11/2026.**
 
 **Dades que falten.** Sense PAS, colesterol total o HDL: "Faltan datos para calcular el riesgo" i la
 prova que falta surt com a acció recomanada (i al volant).
@@ -388,7 +391,7 @@ avaluar les regles: només els últims anys de cada prova que fan servir les reg
 - **On es configura.** `motor.finestra_dades` de `config/rules.yaml`: per a cada prova del catàleg
   (`model/cataleg.py`), els `anys` enrere des de la data de referència i les `regles` que la necessiten.
   `anys: 0` vol dir que el motor no la fa servir. Les proves que no són a la llista tampoc s'hi fan servir.
-  `enabled: false` desactiva la finestra (com abans). Pendent de validar pel metge.
+  `enabled: false` desactiva la finestra (com abans). Validat per david cebotari (metge de l'equip) el 15/11/2026.
 - **On s'aplica.** `RiskEngine.minimitza(d)` filtra les analítiques abans de qualsevol regla
   (`avalua_dades`) i de la gràfica (`series_renals`). La fitxa de l'API (`/api/pacientes/{id}`) també
   retorna només aquestes dades, i la interfície ho explica a la taula "Analíticas que usa el motor".

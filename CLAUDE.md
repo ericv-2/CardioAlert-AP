@@ -151,7 +151,8 @@ model/        entitats.py (dataclasses Pacient, Analitica [con `origen`], Diagno
               cataleg.py (LOINC, CIAP-2/CIE-10, grupos ATC), formules.py (CKD-EPI 2009 y 2021).
 config/       rules.yaml: `rules` (las 8 reglas con "enabled", umbrales, "evidencia" y "pes") y `motor`
               (ecuación FGe, fecha de referencia, FRA, derivación, oportunidades terapéuticas, prioridad).
-              Todo pendiente de validar por el médico.
+              Recomendaciones, umbrales y clases de evidencia revisados y validados por David Cebotari
+              (médico, equipo The GOATS) el 15/11/2026.
 engine/       Motor de reglas determinista (ver "Motor de reglas" más abajo).
 scripts/      generate_patients.py: generador sintético (seed 42) -> simulador/datos/demo/; con `--perfil
               realista` llama a cohort_realista.py (cupo calibrado con REGICOR y ENRICA) ->
@@ -277,8 +278,11 @@ estat_addon/  estados de las alertas, log de auditoría y registro de actividad 
 - `puntuacio_prioritat` = suma de `pes` de las alertas (salvo `alertes_fora_avui`) + peso KDIGO (máx. 100);
   solo ordena dentro de cada grupo. La tarjeta CDS y el resumen los encabeza `alerta_principal` (la urgente).
 - Textos de salida (alertas, acciones, nota) en castellano; cero umbrales en el código.
-- Coeficientes de SCORE2/SCORE2-OP/SCORE2-Diabetes/CKD Add-on contrastados con el paquete R RiskScorescvd;
-  los de REGICOR y KFRE y las clases de evidencia de `rules.yaml` están pendientes de verificar con el médico.
+- **Estado de validación:** recomendaciones, umbrales y clases de evidencia revisados y validados por David
+  Cebotari (médico, equipo The GOATS) el 15/11/2026. Los coeficientes de las fórmulas (SCORE2, SCORE2-OP,
+  SCORE2-Diabetes, CKD Add-on, CKD-EPI, KFRE, REGICOR) están transcritos de las publicaciones originales citadas
+  (README, «Base clínica») y verificados con tests; los de SCORE2/SCORE2-OP/SCORE2-Diabetes/CKD Add-on, además,
+  contrastados con el paquete R RiskScorescvd.
 
 ### Decisiones tomadas (detalle en docs/decisions.md)
 - **Dataset:** 100 pacientes sintéticos (no ~30 ni `pacientes_cupo.csv`), histórico nov 2022 - nov 2026,
@@ -309,10 +313,10 @@ estat_addon/  estados de las alertas, log de auditoría y registro de actividad 
   `score2` es el modo ESC automático: DM2 de 40-69 años -> SCORE2-Diabetes; >= 70 años -> SCORE2-OP;
   < 70 sin diabetes -> SCORE2; + CKD Add-on si hay afectación renal (último FGe < 60 o UACR >= 30) y no es
   una caída aguda. SCORE2-Diabetes NO lleva Add-on por defecto (ya incluye el FGe; `ckd_addon.models`),
-  pendiente de validar por el médico. `escala="regicor"` (motor, CLI y API) queda solo para comparaciones
+  validado por David Cebotari (médico del equipo) el 15/11/2026. `escala="regicor"` (motor, CLI y API) queda solo para comparaciones
   manuales; la web ya no tiene selector de calculadora.
 - **Cortes por edad (ESC), en `talls_per_edat`:** < 50 años 2,5% / 7,5%; 50-69 años 5% / 10%; >= 70 años
-  7,5% / 15% (alto / muy alto). REGICOR: `talls_regicor` 10% / 15% (pendiente de validar).
+  7,5% / 15% (alto / muy alto). REGICOR: `talls_regicor` 10% / 15% (validado por David Cebotari (médico del equipo) el 15/11/2026).
   NO cambiar estos cortes (tabla 5), las fórmulas ni los 100 pacientes de la cohorte demo.
 - **Clases de evidencia:** el código no tiene ninguna etiqueta "Clase / Nivel" propia; solo cita el campo
   `evidencia` de `rules.yaml` (si falta, cita únicamente la guía).

@@ -1,6 +1,11 @@
 # Regles del motor cardio-renal-metabòlic.
 # Cada regla es pot desactivar amb "enabled: false" i els llindars es canvien aquí,
-# sense tocar codi. TOTS ELS VALORS ESTAN PENDENTS DE VALIDACIÓ PEL METGE.
+# sense tocar codi.
+#
+# ESTAT DE VALIDACIÓ: Recomanacions, llindars i classes d'evidència revisats i validats per David Cebotari
+# (metge, equip The GOATS) el 15/11/2026. Els coeficients de les fórmules (SCORE2, SCORE2-OP, SCORE2-Diabetes,
+# CKD Add-on, CKD-EPI, KFRE, REGICOR) estan transcrits de les publicacions originals citades i verificats amb
+# tests. No canviar cap valor sense validació clínica.
 #
 # Codis: diagnòstics en CIAP-2, proves en LOINC, fàrmacs per grup (vegeu model/cataleg.py).
 #
@@ -122,7 +127,7 @@ rules:
     proves_recents: ["9318-7", "2160-0"]        # UACR i creatinina
     max_mesos_proves: 12
 
-# Paràmetres generals del motor (engine/). TAMBÉ PENDENTS DE VALIDACIÓ PEL METGE.
+# Paràmetres generals del motor (engine/). També validats per David Cebotari (metge de l'equip) el 15/11/2026.
 motor:
   guia: "ESC/ERA 2026"                # guia que se cita a alertes i accions
   data_referencia: 2026-11-13         # "avui" de la demo; null = data real del sistema
@@ -157,7 +162,7 @@ motor:
   # Minimització de dades (art. 5.1.c RGPD): de cada prova, el motor només fa servir els últims N anys
   # (comptats des de data_referencia) que necessiten les regles que la fan servir. 0 = el motor no la fa servir
   # i no la llegeix. Les proves que no són a la llista tampoc es fan servir. Diagnòstics i tractaments no
-  # tenen finestra (són crònics o actius). Detall a docs/decisions.md §15. PENDENT DE VALIDAR PEL METGE.
+  # tenen finestra (són crònics o actius). Detall a docs/decisions.md §15. Validat per David Cebotari (metge de l'equip) el 15/11/2026.
   finestra_dades:
     enabled: true
     proves:                           # clau del catàleg (model/cataleg.py) -> anys i regles que la necessiten

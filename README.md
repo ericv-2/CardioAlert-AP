@@ -81,25 +81,27 @@ Detalle de las decisiones de diseño: [docs/decisions.md](docs/decisions.md).
 
 El motor aplica escalas y guías publicadas. No inventa criterios propios.
 
-| Qué | Uso en el motor | Referencia |
-|---|---|---|
-| SCORE2 | Riesgo CV a 10 años, 40-69 años sin diabetes | [doi:10.1093/eurheartj/ehab309](https://doi.org/10.1093/eurheartj/ehab309) |
-| SCORE2-OP | Riesgo CV a partir de 70 años | [doi:10.1093/eurheartj/ehab312](https://doi.org/10.1093/eurheartj/ehab312) |
-| SCORE2-Diabetes | Riesgo CV en diabetes tipo 2, 40-69 años | [doi:10.1093/eurheartj/ehad260](https://doi.org/10.1093/eurheartj/ehad260) |
-| SCORE2 CKD Add-on | Reclasificación al alza con FGe < 60 o albuminuria | [doi:10.1093/eurjpc/zwac176](https://doi.org/10.1093/eurjpc/zwac176) |
-| Guía ESC 2021 de prevención CV | Categorías de riesgo por edad (tabla 5) y objetivos de tratamiento escalonados | [doi:10.1093/eurheartj/ehab484](https://doi.org/10.1093/eurheartj/ehab484) |
-| KDIGO 2024 (ERC) | Categorías G1-G5 × A1-A3, cronicidad ≥ 3 meses y criterios de derivación | [doi:10.1016/j.kint.2023.10.018](https://doi.org/10.1016/j.kint.2023.10.018) |
-| ADA Standards of Care | Objetivo de HbA1c < 7 % | [doi:10.2337/dc25-S006](https://doi.org/10.2337/dc25-S006) |
-| NT-proBNP por edad (HFA-ESC) | Sospecha de IC: ≥ 125 / 250 / 500 pg/mL (< 50 / 50-75 / > 75 años); < 125 la descarta | [doi:10.1002/ejhf.2894](https://doi.org/10.1002/ejhf.2894) |
-| CKD-EPI 2009 sin factor racial | El motor recalcula el FGe desde la creatinina | [doi:10.7326/0003-4819-150-9-200905050-00006](https://doi.org/10.7326/0003-4819-150-9-200905050-00006) |
-| KFRE (4 variables) | Riesgo de fallo renal a 5 años, criterio de derivación a Nefrología | [doi:10.1001/jama.2015.18202](https://doi.org/10.1001/jama.2015.18202) |
-| REGICOR | **Solo como referencia** junto a la escala ESC; no reclasifica | [doi:10.1016/S0300-8932(03)76861-4](https://doi.org/10.1016/S0300-8932(03)76861-4) |
+| Fuente | Uso en el motor | Publicación | DOI |
+|---|---|---|---|
+| SCORE2 | Riesgo CV a 10 años, 40-69 años sin diabetes | *Eur Heart J* 2021;42:2439–54 | [doi:10.1093/eurheartj/ehab309](https://doi.org/10.1093/eurheartj/ehab309) |
+| SCORE2-OP | Riesgo CV a partir de 70 años | *Eur Heart J* 2021;42:2455–67 | [doi:10.1093/eurheartj/ehab312](https://doi.org/10.1093/eurheartj/ehab312) |
+| SCORE2-Diabetes | Riesgo CV en diabetes tipo 2, 40-69 años | *Eur Heart J* 2023;44:2544–56 | [doi:10.1093/eurheartj/ehad260](https://doi.org/10.1093/eurheartj/ehad260) |
+| SCORE2 CKD Add-on (Matsushita et al.) | Reclasificación al alza con FGe < 60 o albuminuria | *Eur J Prev Cardiol* 2023;30:8–16 | [doi:10.1093/eurjpc/zwac176](https://doi.org/10.1093/eurjpc/zwac176) |
+| 2021 ESC Guidelines on CVD prevention | Categorías de riesgo por edad (tabla 5) y objetivos de tratamiento escalonados | *Eur Heart J* 2021;42:3227–337 | [doi:10.1093/eurheartj/ehab484](https://doi.org/10.1093/eurheartj/ehab484) |
+| 2026 ESC/ERA Guidelines CVD and CKD (Damman et al.) | Marco «STAMP on CKD»: alertas renales, derivación y oportunidades terapéuticas | *Eur Heart J* 2026 | [doi:10.1093/eurheartj/ehag098](https://doi.org/10.1093/eurheartj/ehag098) |
+| KDIGO 2024 CKD Guideline | Categorías G1-G5 × A1-A3 y cronicidad ≥ 3 meses | *Kidney Int* 2024;105(4S):S117–S314 | [doi:10.1016/j.kint.2023.10.018](https://doi.org/10.1016/j.kint.2023.10.018) |
+| CKD-EPI 2009 (Levey et al.), sin factor racial | El motor recalcula el FGe desde la creatinina | *Ann Intern Med* 2009;150:604–12 | [doi:10.7326/0003-4819-150-9-200905050-00006](https://doi.org/10.7326/0003-4819-150-9-200905050-00006) |
+| KFRE multinacional, 4 variables (Tangri et al.) | Riesgo de fallo renal a 5 años, criterio de derivación a Nefrología | *JAMA* 2016;315:164–74 | [doi:10.1001/jama.2015.18202](https://doi.org/10.1001/jama.2015.18202) |
+| NT-proBNP por edad, consenso HFA-ESC (Bayes-Genis et al.) | Sospecha de IC: ≥ 125 / 250 / 500 pg/mL (< 50 / 50-75 / > 75 años); < 125 la descarta | *Eur J Heart Fail* 2023;25:1891–8 | [doi:10.1002/ejhf.3036](https://doi.org/10.1002/ejhf.3036) |
+| ADA Standards of Care in Diabetes 2026, sección 6 | Objetivo de HbA1c < 7 % | *Diabetes Care* 2026;49(Suppl 1) | [doi:10.2337/dc26-S006](https://doi.org/10.2337/dc26-S006) |
+| REGICOR (Marrugat et al.) | **Solo como referencia** junto a la escala ESC; no reclasifica | *J Epidemiol Community Health* 2003;57:634–8 | [doi:10.1136/jech.57.8.634](https://doi.org/10.1136/jech.57.8.634) |
+| Validación de REGICOR, estudio VERIFICA | Respaldo de la calibración de REGICOR | *J Epidemiol Community Health* 2007;61:40–7 | [doi:10.1136/jech.2005.038505](https://doi.org/10.1136/jech.2005.038505) |
 
 Las alertas y acciones renales y terapéuticas citan el marco del enunciado del reto («STAMP on CKD», ESC/ERA 2026); la alerta de riesgo cardiovascular cita la guía ESC 2021.
 
 **Umbrales.** Todos están en [`config/rules.yaml`](config/rules.yaml), no en el código. **No deben modificarse sin validación clínica.**
 
-**Validación clínica.** Todas las recomendaciones y sus niveles de evidencia (clase ESC/KDIGO/ADA) han sido revisados y validados por David Cebotari, médico del equipo.
+**Validación clínica.** Recomendaciones, umbrales y clases de evidencia (clase ESC/KDIGO/ADA) revisados y validados por David Cebotari (médico, equipo The GOATS) el 15/11/2026. Los coeficientes de las fórmulas (SCORE2, SCORE2-OP, SCORE2-Diabetes, CKD Add-on, CKD-EPI, KFRE, REGICOR) están transcritos de las publicaciones originales citadas y verificados con tests.
 
 ## 5. Datos
 

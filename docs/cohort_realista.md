@@ -202,5 +202,5 @@ pacients comparables, 431 quedarien igual, **341 baixarien** de categoria (277 d
 "Bajo-moderado", 33 de "Muy alto" a "Bajo-moderado" i 31 de "Muy alto" a "Alto") i 1 pujaria. No són
 comparables 188 pacients de ≥ 75 anys (REGICOR arriba fins als 74), 31 amb la categoria fixada per la
 MRC, ni els 508 que no tenen categoria.
-Compte: REGICOR mesura risc coronari i fa servir uns altres talls (10% / 15%, pendents de validar), o
+Compte: REGICOR mesura risc coronari i fa servir uns altres talls (10% / 15%, validats per David Cebotari el 15/11/2026), o
 sigui que la comparació és orientativa.

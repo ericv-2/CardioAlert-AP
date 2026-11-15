@@ -161,9 +161,9 @@ export default function RulesView({ kpis, recalculando, onSaved }) {
             Umbrales que usa el motor de reglas, leídos de <code className="rounded bg-clinic-50 px-1 text-ink">config/rules.yaml</code>. Al guardar se
             validan, se hace una copia de seguridad del fichero y el cupo se recalcula al instante, sin tocar código.
           </p>
-          <p className="mt-3 flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
+          <p className="mt-3 flex items-start gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-inset ring-emerald-200">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            Todos los valores están pendientes de validación por el equipo médico.
+            Recomendaciones, umbrales y clases de evidencia revisados y validados por David Cebotari (médico del equipo) el 15/11/2026. No los cambie sin validación clínica.
           </p>
         </div>
 
