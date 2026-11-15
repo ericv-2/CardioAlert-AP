@@ -21,7 +21,7 @@ def rules(tmp_path) -> Path:
 
 @pytest.fixture()
 def client(rules) -> TestClient:
-    return TestClient(create_app(rules_path=rules))
+    return TestClient(create_app(font_per_defecte="local", rules_path=rules))
 
 
 def test_cupo_per_defecte(client):
@@ -69,7 +69,7 @@ def test_font_remota_sense_connector_torna_a_local_amb_avis(client):
 def test_font_remota_que_falla_torna_a_local_amb_avis(rules):
     def falla():
         raise TimeoutError("sin respuesta")
-    cos = TestClient(create_app(rules_path=rules, remote_factory=falla)).get("/api/cupo?source=remote").json()
+    cos = TestClient(create_app(font_per_defecte="local", rules_path=rules, remote_factory=falla)).get("/api/cupo?source=remote").json()
     assert cos["meta"]["font_usada"] == "local" and "sin respuesta" in cos["meta"]["avis"]
     assert len(cos["pacients"]) == 100
 
@@ -234,7 +234,7 @@ def test_cohort_realista_nomes_en_local(client):
 
 
 def test_cohort_realista_sense_generar_torna_a_la_demo(rules, tmp_path):
-    client = TestClient(create_app(rules_path=rules, dades_realista=tmp_path / "no_hi_es"))
+    client = TestClient(create_app(font_per_defecte="local", rules_path=rules, dades_realista=tmp_path / "no_hi_es"))
     cohorts = {c["id"]: c for c in client.get("/api/cohorts").json()["cohorts"]}
     assert cohorts["realista"]["disponible"] is False
     cos = client.get("/api/cupo", params={"cohort": "realista"}).json()

@@ -17,7 +17,7 @@ from connectors.fhir_remote_connector import ETIQUETA, SISTEMA_ETIQUETA, ErrorFh
 from engine import RiskEngine
 
 ARREL = Path(__file__).resolve().parent.parent
-DADES = ARREL / "data" / "synthetic" / "fhir"
+DADES = ARREL / "simulador" / "datos" / "demo" / "fhir"
 AVUI = date(2026, 11, 13)
 sys.path.insert(0, str(ARREL / "scripts"))
 import upload_to_fhir  # noqa: E402
@@ -137,7 +137,7 @@ def test_api_amb_font_remota(servidor, tmp_path):
         crides.append(1)
         return _remot(servidor)
 
-    client = TestClient(create_app(rules_path=rules, remote_factory=factory))
+    client = TestClient(create_app(font_per_defecte="local", rules_path=rules, remote_factory=factory))
     remot = client.get("/api/cupo", params={"source": "remote"}).json()
     local = client.get("/api/cupo").json()
     assert remot["meta"]["font_usada"] == "remote" and remot["meta"]["avis"] is None
@@ -155,7 +155,7 @@ def test_api_no_reintenta_el_remot_a_cada_peticio(tmp_path):
         crides.append(1)
         raise ErrorFhirRemot("el servidor FHIR tarda demasiado")
 
-    client = TestClient(create_app(rules_path=rules, remote_factory=factory))
+    client = TestClient(create_app(font_per_defecte="local", rules_path=rules, remote_factory=factory))
     for _ in range(3):
         cos = client.get("/api/cupo", params={"source": "remote"}).json()
         assert cos["meta"]["font_usada"] == "local" and "tarda demasiado" in cos["meta"]["avis"]

@@ -15,7 +15,7 @@ INDICADOR = {1: "critical", 2: "warning", 3: "warning", 4: "info"}  # segons el 
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:
-    return TestClient(create_app())
+    return TestClient(create_app(font_per_defecte="local"))
 
 
 def peticio(pacient_id: str, **extra) -> dict:
@@ -45,7 +45,7 @@ def test_discovery_anuncia_la_interficie_de_l_addon(monkeypatch):
 
 
 def test_targeta_amb_enllac_smart_a_la_interficie():
-    card = lambda **kw: TestClient(create_app(**kw)).post(URL, json=peticio("P003")).json()["cards"][0]
+    card = lambda **kw: TestClient(create_app(font_per_defecte="local", **kw)).post(URL, json=peticio("P003")).json()["cards"][0]
     assert card(url_interficie="http://localhost:5173")["links"] == [
         {"label": "Abrir la ficha en CardioAlert AP", "url": "http://localhost:5173", "type": "smart"}]
     assert "links" not in card(url_interficie="")

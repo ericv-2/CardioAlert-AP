@@ -3,14 +3,15 @@ import { LoaderCircle, RotateCw, Unplug, X } from "lucide-react";
 import { ESTACION, interfazResponde, nombreAddon, PROFESIONAL, urlLanzamiento } from "../integracion.js";
 
 // Ventana modal sobre la estación con la interfaz completa del add-on dentro de un iframe.
-// La estación le pasa el paciente abierto y el profesional (lanzamiento SMART on FHIR simulado).
-export default function ModalAddon({ instalacion, paciente, onCerrar }) {
+// La estación le pasa su servidor FHIR (`iss`), el paciente abierto y el profesional (lanzamiento SMART on FHIR
+// simulado). `vista`: "cupo" abre la página principal del add-on; "ficha", la ficha del paciente abierto.
+export default function ModalAddon({ instalacion, paciente, vista = "cupo", onCerrar }) {
   const [estado, setEstado] = useState("comprobando"); // comprobando | ok | sin_respuesta
   const [intento, setIntento] = useState(0);
   const botonCerrar = useRef(null);
   const nombre = nombreAddon(instalacion);
   const pacienteId = paciente?.id ?? null;
-  const src = useMemo(() => urlLanzamiento(instalacion, pacienteId), [instalacion, pacienteId]);
+  const src = useMemo(() => urlLanzamiento(instalacion, pacienteId, vista), [instalacion, pacienteId, vista]);
 
   useEffect(() => {
     let vivo = true;

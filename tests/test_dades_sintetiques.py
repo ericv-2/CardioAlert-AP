@@ -17,7 +17,7 @@ AVUI = date(2026, 11, 13)
 
 @pytest.fixture(scope="module")
 def pacients():
-    c = CsvConnector(ARREL / "data" / "synthetic" / "csv")
+    c = CsvConnector(ARREL / "simulador" / "datos" / "demo" / "csv")
     return [c.get_patient_data(p.id) for p in c.get_patients()]
 
 

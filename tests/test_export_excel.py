@@ -20,7 +20,7 @@ ARREL = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(scope="module")
 def cupo():
-    return RiskEngine(FhirConnector(ARREL / "data" / "synthetic" / "fhir")).avalua_cupo()
+    return RiskEngine(FhirConnector(ARREL / "simulador" / "datos" / "demo" / "fhir")).avalua_cupo()
 
 
 def test_excel_complet_i_sense_truncar(cupo, tmp_path):
@@ -67,7 +67,7 @@ def test_cli_excel(tmp_path, capsys):
 
 def test_descarrega_des_de_l_api(tmp_path):
     rules = shutil.copy(ARREL / "config" / "rules.yaml", tmp_path / "rules.yaml")
-    r = TestClient(create_app(rules_path=rules)).get("/api/export/excel", params={"scale": "score2"})
+    r = TestClient(create_app(font_per_defecte="local", rules_path=rules)).get("/api/export/excel", params={"scale": "score2"})
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     assert 'filename="cupo_evaluado.xlsx"' in r.headers["content-disposition"]

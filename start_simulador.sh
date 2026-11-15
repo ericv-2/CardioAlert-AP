@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Arranca SOLO la estación clínica simulada (puerto 5174). No necesita Python ni el add-on.
+# Los datos de los pacientes son de la estación (simulador/datos) y los sirve su servidor FHIR.
 set -e
 cd "$(dirname "$0")"
 
@@ -8,8 +9,8 @@ if ! command -v npm >/dev/null 2>&1; then
   echo "[ERROR] No se encuentra npm. Instale Node.js 20 o superior: https://nodejs.org" >&2
   exit 1
 fi
-if [ ! -f data/synthetic/fhir/P001.json ]; then
-  echo "[ERROR] Faltan los datos sintéticos (data/synthetic/fhir). Ejecute: python scripts/generate_patients.py" >&2
+if [ ! -f simulador/datos/demo/fhir/P001.json ]; then
+  echo "[ERROR] Faltan los datos sintéticos (simulador/datos/demo/fhir). Ejecute: python scripts/generate_patients.py" >&2
   exit 1
 fi
 if [ ! -d simulador/node_modules/vite ]; then
@@ -23,7 +24,9 @@ cat <<'EOF'
   ESTACIÓN CLÍNICA SIMULADA  (datos sintéticos)
  ============================================================
   Estación clínica:      http://localhost:5174
-  Su servidor FHIR:      http://localhost:5174/fhir/Patient
+  Su servidor FHIR:      http://localhost:5174/fhir/metadata
+  Cupo activo:           Configuración → Cupo / centro
+                         (demo de 100 o realista de 1.500)
  ------------------------------------------------------------
   Por defecto NO tiene ningún add-on instalado.
   Para instalar CardioAlert AP: Configuración → Integraciones,

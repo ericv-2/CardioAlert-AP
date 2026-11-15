@@ -5,15 +5,23 @@
     python -m engine --excel            exporta el cupo a exports/cupo_evaluado.xlsx
     python -m engine --escala regicor   qualsevol de les anteriors amb REGICOR
     python -m engine --rules-excel      full de revisió de les regles per al metge (exports/revision_reglas.xlsx)
+    python -m engine --ehr [URL]        qualsevol de les anteriors llegint del servidor FHIR de l'estació clínica
+                                        (per defecte http://localhost:5174/fhir; cal tenir el simulador arrencat)
+
+Sense --ehr es llegeixen directament els fitxers de la cohort demo de l'estació simulada (simulador/datos/demo).
 """
 from __future__ import annotations
 
 import argparse
 import sys
 
-from connectors import FhirConnector
+from connectors import FhirConnector, FhirEhrConnector
+from connectors.fhir_ehr_connector import ErrorFhirEhr
 
 from .risk_engine import ARREL, GRUPS_ORDRE, MODES_ESCALA, NOM_EQUACIO, TEXT_CATEGORIA, ResultatPacient, RiskEngine
+
+
+URL_EHR = "http://localhost:5174/fhir"  # servidor FHIR de l'estació clínica simulada
 
 
 def recompte(cupo: list[ResultatPacient]) -> dict:
@@ -53,6 +61,8 @@ def main(argv: list[str]) -> None:
     parser.add_argument("--escala", choices=MODES_ESCALA, help="escala de risc CV (per defecte, la de rules.yaml)")
     parser.add_argument("--rules-excel", nargs="?", const="", metavar="FITXER",
                         help="full de revisió clínica de les regles (per defecte exports/revision_reglas.xlsx)")
+    parser.add_argument("--ehr", nargs="?", const=URL_EHR, metavar="URL",
+                        help="llegeix del servidor FHIR de l'estació clínica (cupo actiu, amb Bulk Data)")
     args = parser.parse_args(argv)
 
     if args.rules_excel is not None:
@@ -60,14 +70,24 @@ def main(argv: list[str]) -> None:
         print(f"Excel de revisión escrito: {exporta_revisio(args.rules_excel or CAMI_REVISIO)}")
         return
 
-    motor = RiskEngine(FhirConnector(ARREL / "data" / "synthetic" / "fhir"), escala=args.escala)
+    if args.ehr and not args.ehr.startswith("http"):  # "--ehr P003": l'argument és el pacient, no la URL
+        args.pacient, args.ehr = args.pacient or args.ehr, URL_EHR
+    if args.ehr:
+        connector = FhirEhrConnector(args.ehr)
+        try:
+            font = f"{connector.sistema()} – {connector.carrega_cupo().nom}"
+        except ErrorFhirEhr as exc:
+            sys.exit(f"No se pueden leer los datos de la estación clínica: {exc}. ¿Está arrancado el simulador?")
+    else:
+        connector, font = FhirConnector(ARREL / "simulador" / "datos" / "demo" / "fhir"), "Local (eCAP / DIRAYA Demo)"
+    motor = RiskEngine(connector, escala=args.escala)
     if args.pacient:
         print(motor.avalua(args.pacient).nota_clinica_auto)
         return
     cupo = motor.avalua_cupo()
     if args.excel is not None:
         from .export_excel import CAMI_DEFECTE, exporta_cupo
-        cami = exporta_cupo(cupo, args.excel or CAMI_DEFECTE, meta_avaluacio(motor, "Local (eCAP / DIRAYA Demo)"))
+        cami = exporta_cupo(cupo, args.excel or CAMI_DEFECTE, meta_avaluacio(motor, font))
         print(f"Excel escrit: {cami} ({len(cupo)} pacients)")
         return
     n = recompte(cupo)

@@ -19,7 +19,7 @@ from model.cataleg import LOINC
 from model.formules import ckd_epi_2009, ckd_epi_2021
 
 ARREL = Path(__file__).resolve().parent.parent
-DADES = ARREL / "data" / "synthetic"
+DADES = ARREL / "simulador" / "datos" / "demo"
 CONFIG = ARREL / "config" / "rules.yaml"
 AVUI = date(2026, 11, 13)
 

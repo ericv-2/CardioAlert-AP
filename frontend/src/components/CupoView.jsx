@@ -107,7 +107,7 @@ function Hoy({ pacientes }) {
   );
 }
 
-export default function CupoView({ cupo, sel, onRetry, filtro, onFiltro, busqueda, onBusqueda }) {
+export default function CupoView({ cupo, onRetry, filtro, onFiltro, busqueda, onBusqueda }) {
   const { data, loading, error } = cupo;
   const pacientes = data?.pacients ?? [];
   const [limite, setLimite] = useState(POR_PAGINA);
@@ -120,7 +120,7 @@ export default function CupoView({ cupo, sel, onRetry, filtro, onFiltro, busqued
   useEffect(() => setLimite(POR_PAGINA), [filtro, busqueda, data]);
 
   if (error) return <ErrorPanel mensaje={error} onRetry={onRetry} />;
-  if (!data) return <Cargando texto={sel.source === "remote" ? "Descargando el cupo del servidor FHIR remoto…" : "Calculando el cupo…"} />;
+  if (!data) return <Cargando texto="Leyendo el cupo de la estación clínica y calculando…" />;
 
   const k = data.kpis;
   const filtros = [{ id: "TODOS", texto: "Todos", n: k.total }, ...Object.keys(k.grups).map((g) => ({ id: g, texto: GRUPO_CORTO[g], n: k.grups[g] }))];

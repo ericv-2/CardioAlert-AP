@@ -4,7 +4,7 @@
 > document són una proposta de l'equip tècnic. Cap dada correspon a un pacient real.
 
 Generador: `scripts/generate_patients.py` (llavor fixa `seed = 42`, resultat reproduïble).
-Sortida: `data/synthetic/fhir/` (un bundle FHIR R4 per pacient) i `data/synthetic/csv/`.
+Sortida: `simulador/datos/demo/fhir/` (un bundle FHIR R4 per pacient) i `simulador/datos/demo/csv/`.
 
 ## Població
 

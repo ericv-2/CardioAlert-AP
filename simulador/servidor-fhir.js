@@ -1,88 +1,354 @@
-// Servidor FHIR R4 mínimo de la estación clínica simulada (plugin de Vite, solo lectura).
+// Servidor FHIR R4 de la estación clínica simulada (solo lectura, sin dependencias: solo Node).
 //
-//   GET /fhir/metadata                    CapabilityStatement resumido
-//   GET /fhir/Patient                     Bundle "searchset" con los pacientes del cupo
-//   GET /fhir/Patient/{id}/$everything    Bundle con toda la historia del paciente
+// Los datos de los pacientes son de la ESTACIÓN (carpeta simulador/datos, un Bundle JSON por paciente). El
+// add-on no tiene datos propios: los lee de aquí, igual que leería los de una estación clínica real.
 //
-// Lee una carpeta con un Bundle JSON por paciente (los datos sintéticos del repo). Es la historia clínica
-// PROPIA de la estación: funciona igual con el add-on instalado o sin él.
+//   GET /fhir/metadata                          CapabilityStatement
+//   GET /fhir/Patient[?name=&_id=&_count=]      búsqueda de pacientes del cupo activo (Bundle "searchset")
+//   GET /fhir/Patient/{id}                      un paciente
+//   GET /fhir/Patient/{id}/$everything          Bundle con toda la historia del paciente
+//   GET /fhir/Group                             el cupo activo como recurso Group (sin miembros)
+//   GET /fhir/Group/{id}                        el cupo con sus miembros
+//   GET /fhir/Group/{id}/$export                FHIR Bulk Data simplificado: 202 + Content-Location
+//   GET /fhir/$export-status/{trabajo}          manifiesto de la exportación (un fichero NDJSON por tipo)
+//   GET /fhir/$export-file/{trabajo}/{Tipo}.ndjson
+//
+// Bulk Data "simplificado": el flujo es el del estándar (arranque asíncrono, estado, manifiesto, NDJSON), pero
+// la exportación termina al instante, no hay OAuth y no se puede cancelar.
+//
+// Fuera de FHIR, la estación tiene dos rutas de administración para elegir el cupo activo
+// (Configuración → Cupo / centro):
+//   GET  /estacion/cupos      cupos disponibles y cuál está activo
+//   POST /estacion/cupo       { "id": "demo" | "realista" }
+//
+// Se usa de dos maneras: como plugin de Vite (en el puerto de la estación, 5174) o por su cuenta:
+//   node servidor-fhir.js [--port 5174] [--host localhost] [--datos carpeta] [--cupo demo|realista]
+import crypto from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-export default function servidorFhir(carpeta) {
-  let indice = null; // id de paciente -> { fichero, paciente }; se construye en la primera petición
+export const ESTACION = "Estación clínica simulada";
+const AQUI = path.dirname(fileURLToPath(import.meta.url));
+export const DATOS_POR_DEFECTO = path.join(AQUI, "datos");
+const TIPOS = ["Patient", "Observation", "Condition", "MedicationStatement"];
 
-  function cargarIndice() {
-    if (indice) return indice;
-    if (!fs.existsSync(carpeta)) throw new Error(`No existe la carpeta de datos ${carpeta}. Ejecute: python scripts/generate_patients.py`);
-    indice = new Map();
+// Cupos de la estación: cada uno es una carpeta de datos/ con los bundles en fhir/.
+export const CUPOS = [
+  {
+    id: "demo",
+    nombre: "Cupo demo",
+    centro: "Consultorio de demostración",
+    descripcion: "100 pacientes sintéticos, con los 8 casos de ejemplo (P001-P008).",
+    generar: "python scripts/generate_patients.py",
+  },
+  {
+    id: "realista",
+    nombre: "Cupo realista",
+    centro: "Centro de salud urbano",
+    descripcion: "1.500 adultos sintéticos con prevalencias calibradas con REGICOR y ENRICA.",
+    generar: "python scripts/generate_patients.py --perfil realista --n 1500",
+  },
+];
+
+class ErrorHttp extends Error {
+  constructor(estado, mensaje) {
+    super(mensaje);
+    this.estado = estado;
+  }
+}
+
+const sinAcentos = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+export function crearEstacion({ datos = DATOS_POR_DEFECTO, cupoInicial = "demo" } = {}) {
+  const indices = new Map(); // id de cupo -> índice (se construye la primera vez que se pide)
+  let activo = CUPOS.some((c) => c.id === cupoInicial) ? cupoInicial : CUPOS[0].id;
+
+  const carpetaDe = (cupo) => path.join(datos, cupo.id, "fhir");
+  const ficherosDe = (cupo) => {
+    const carpeta = carpetaDe(cupo);
+    return fs.existsSync(carpeta) ? fs.readdirSync(carpeta).filter((f) => f.endsWith(".json")).sort() : [];
+  };
+
+  // Lee todos los bundles de un cupo una sola vez: pacientes, fecha de los datos, versión y los NDJSON de la
+  // exportación (una línea por recurso). La historia de un paciente se sigue leyendo de su fichero.
+  function cargar(id) {
+    if (indices.has(id)) return indices.get(id);
+    const cupo = CUPOS.find((c) => c.id === id);
+    if (!cupo) throw new ErrorHttp(404, `Cupo ${id} desconocido`);
+    const nombres = ficherosDe(cupo);
+    if (nombres.length === 0) throw new ErrorHttp(503, `El ${cupo.nombre.toLowerCase()} no tiene datos en ${carpetaDe(cupo)}. Ejecute: ${cupo.generar}`);
+    const pacientes = new Map();
+    const lineas = Object.fromEntries(TIPOS.map((t) => [t, []]));
+    const huella = crypto.createHash("sha1");
     let fecha = null;
-    for (const nombre of fs.readdirSync(carpeta).filter((f) => f.endsWith(".json")).sort()) {
-      const fichero = path.join(carpeta, nombre);
-      const bundle = JSON.parse(fs.readFileSync(fichero, "utf-8"));
-      const paciente = bundle.entry?.map((e) => e.resource).find((r) => r?.resourceType === "Patient");
+    for (const nombre of nombres) {
+      const fichero = path.join(carpetaDe(cupo), nombre);
+      const texto = fs.readFileSync(fichero, "utf-8");
+      huella.update(texto);
+      const bundle = JSON.parse(texto);
+      const recursos = (bundle.entry ?? []).map((e) => e.resource).filter(Boolean);
+      const paciente = recursos.find((r) => r.resourceType === "Patient");
       if (!paciente) continue;
-      indice.set(paciente.id, { fichero, paciente });
+      pacientes.set(paciente.id, { fichero, paciente });
+      for (const r of recursos) lineas[r.resourceType]?.push(JSON.stringify(r));
       if (bundle.timestamp && (!fecha || bundle.timestamp > fecha)) fecha = bundle.timestamp;
     }
-    indice.fecha = fecha; // la "fecha de hoy" de la simulación: la de extracción de los datos
+    const indice = {
+      cupo,
+      grupoId: `cupo-${cupo.id}`,
+      pacientes,
+      fecha, // la "fecha de hoy" de la simulación: la de extracción de los datos
+      version: huella.digest("hex").slice(0, 12), // cambia si cambian los datos
+      ndjson: Object.fromEntries(TIPOS.map((t) => [t, { cuenta: lineas[t].length, datos: Buffer.from(lineas[t].map((l) => `${l}\n`).join(""), "utf-8") }])),
+    };
+    indices.set(id, indice);
     return indice;
   }
 
-  function responder(res, estado, cuerpo) {
-    res.statusCode = estado;
-    res.setHeader("Content-Type", "application/fhir+json; charset=utf-8");
-    res.setHeader("Cache-Control", "no-store");
-    res.end(typeof cuerpo === "string" ? cuerpo : JSON.stringify(cuerpo));
+  const cargarActivo = () => cargar(activo);
+
+  function grupo(indice, conMiembros) {
+    const g = {
+      resourceType: "Group",
+      id: indice.grupoId,
+      meta: { versionId: indice.version, lastUpdated: indice.fecha },
+      type: "person",
+      actual: true,
+      active: true,
+      name: indice.cupo.nombre,
+      quantity: indice.pacientes.size,
+      managingEntity: { display: indice.cupo.centro },
+    };
+    if (conMiembros) g.member = [...indice.pacientes.keys()].map((id) => ({ entity: { reference: `Patient/${id}` } }));
+    return g;
   }
 
-  const error = (res, estado, texto) =>
-    responder(res, estado, { resourceType: "OperationOutcome", issue: [{ severity: "error", code: estado === 404 ? "not-found" : "exception", diagnostics: texto }] });
+  function estadoCupos() {
+    return {
+      activo,
+      cupos: CUPOS.map((c) => ({ id: c.id, nombre: c.nombre, centro: c.centro, descripcion: c.descripcion, generar: c.generar, pacientes: ficherosDe(c).length })),
+    };
+  }
 
-  function atender(req, res) {
-    const ruta = decodeURIComponent(new URL(req.url, "http://localhost").pathname).replace(/\/+$/, "");
+  function responder(res, estado, cuerpo, tipo = "application/fhir+json; charset=utf-8", cabeceras = {}) {
+    res.statusCode = estado;
+    res.setHeader("Content-Type", tipo);
+    res.setHeader("Cache-Control", "no-store");
+    for (const [k, v] of Object.entries(cabeceras)) res.setHeader(k, v);
+    res.end(cuerpo == null ? "" : typeof cuerpo === "string" || Buffer.isBuffer(cuerpo) ? cuerpo : JSON.stringify(cuerpo));
+  }
+
+  const CODIGO = { 400: "invalid", 404: "not-found", 405: "not-supported", 503: "transient" };
+  const error = (res, estado, texto) =>
+    responder(res, estado, { resourceType: "OperationOutcome", issue: [{ severity: "error", code: CODIGO[estado] ?? "exception", diagnostics: texto }] });
+
+  function capacidades(base) {
+    return {
+      resourceType: "CapabilityStatement",
+      status: "active",
+      kind: "instance",
+      fhirVersion: "4.0.1",
+      format: ["json", "ndjson"],
+      software: { name: ESTACION, version: "1.1" },
+      implementation: { description: `${ESTACION} (datos sintéticos, solo lectura)`, url: base },
+      instantiates: ["http://hl7.org/fhir/uv/bulkdata/CapabilityStatement/bulk-data"],
+      rest: [
+        {
+          mode: "server",
+          documentation: "Solo lectura y sin autenticación: es una simulación con datos sintéticos.",
+          resource: [
+            {
+              type: "Patient",
+              interaction: [{ code: "read" }, { code: "search-type" }],
+              searchParam: [
+                { name: "_id", type: "token" },
+                { name: "identifier", type: "token" },
+                { name: "name", type: "string" },
+              ],
+              operation: [{ name: "everything", definition: "http://hl7.org/fhir/OperationDefinition/Patient-everything" }],
+            },
+            {
+              type: "Group",
+              interaction: [{ code: "read" }, { code: "search-type" }],
+              operation: [{ name: "export", definition: "http://hl7.org/fhir/uv/bulkdata/OperationDefinition/group-export" }],
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  function buscarPacientes(indice, q, base) {
+    const ids = [q.get("_id"), q.get("identifier")].filter(Boolean).flatMap((v) => v.split(",").map((x) => x.split("|").pop().trim()));
+    const nombre = q.get("name") ? sinAcentos(q.get("name")) : null;
+    let lista = [...indice.pacientes.values()].map((f) => f.paciente);
+    if (ids.length) lista = lista.filter((p) => ids.includes(p.id));
+    if (nombre) lista = lista.filter((p) => sinAcentos([p.name?.[0]?.text, ...(p.name?.[0]?.given ?? []), p.name?.[0]?.family].filter(Boolean).join(" ")).includes(nombre));
+    const total = lista.length;
+    const inicio = Math.max(0, Number.parseInt(q.get("_offset") ?? "0", 10) || 0);
+    const cuenta = q.has("_count") ? Math.max(0, Number.parseInt(q.get("_count"), 10) || 0) : total;
+    const enlace = (desde) => {
+      const p = new URLSearchParams(q);
+      p.set("_offset", String(desde));
+      return `${base}/Patient?${p}`;
+    };
+    const link = [{ relation: "self", url: `${base}/Patient${[...q].length ? `?${q}` : ""}` }];
+    if (inicio + cuenta < total) link.push({ relation: "next", url: enlace(inicio + cuenta) });
+    return {
+      resourceType: "Bundle",
+      type: "searchset",
+      timestamp: indice.fecha,
+      total,
+      link,
+      entry: lista.slice(inicio, inicio + cuenta).map((p) => ({ fullUrl: `${base}/Patient/${p.id}`, resource: p, search: { mode: "match" } })),
+    };
+  }
+
+  // Trabajo de exportación: "<cupo>-<versión de los datos>". No guarda estado: la exportación es inmediata.
+  function indiceDeTrabajo(trabajo) {
+    const m = trabajo.match(/^([a-z]+)-([0-9a-f]+)$/);
+    const indice = m && CUPOS.some((c) => c.id === m[1]) ? cargar(m[1]) : null;
+    if (!indice || indice.version !== m[2]) throw new ErrorHttp(404, `La exportación ${trabajo} no existe o ha caducado: vuelva a lanzar $export`);
+    return indice;
+  }
+
+  function atenderFhir(req, res, prefijo = "/fhir") {
+    const url = new URL(req.url, "http://localhost");
+    const ruta = decodeURIComponent(url.pathname).replace(/\/+$/, "");
+    const base = `http://${req.headers.host ?? "localhost"}${prefijo}`;
     if (req.method !== "GET") return error(res, 405, "Servidor de solo lectura");
     try {
-      if (ruta === "/metadata") {
-        return responder(res, 200, {
-          resourceType: "CapabilityStatement",
-          status: "active",
-          kind: "instance",
-          fhirVersion: "4.0.1",
-          format: ["json"],
-          software: { name: "Estación clínica simulada (datos sintéticos)" },
-          rest: [{ mode: "server", resource: [{ type: "Patient", interaction: [{ code: "search-type" }], operation: [{ name: "everything" }] }] }],
-        });
+      if (ruta === "/metadata") return responder(res, 200, capacidades(base));
+
+      let m = ruta.match(/^\/\$export-status\/([^/]+)$/);
+      if (m) {
+        const indice = indiceDeTrabajo(m[1]);
+        const pedidos = (url.searchParams.get("_type") ?? "").split(",").filter(Boolean);
+        return responder(
+          res,
+          200,
+          {
+            transactionTime: indice.fecha,
+            request: `${base}/Group/${indice.grupoId}/$export`,
+            requiresAccessToken: false,
+            output: TIPOS.filter((t) => !pedidos.length || pedidos.includes(t)).map((t) => ({
+              type: t,
+              url: `${base}/$export-file/${m[1]}/${t}.ndjson`,
+              count: indice.ndjson[t].cuenta,
+            })),
+            error: [],
+          },
+          "application/json; charset=utf-8",
+        );
       }
-      const idx = cargarIndice();
-      if (ruta === "/Patient") {
+      m = ruta.match(/^\/\$export-file\/([^/]+)\/([A-Za-z]+)\.ndjson$/);
+      if (m) {
+        const fichero = indiceDeTrabajo(m[1]).ndjson[m[2]];
+        if (!fichero) return error(res, 404, `La exportación no incluye el tipo ${m[2]}`);
+        return responder(res, 200, fichero.datos, "application/fhir+ndjson; charset=utf-8");
+      }
+
+      const indice = cargarActivo();
+      if (ruta === "/Patient") return responder(res, 200, buscarPacientes(indice, url.searchParams, base));
+      m = ruta.match(/^\/Patient\/([^/]+)(\/\$everything)?$/);
+      if (m) {
+        const ficha = indice.pacientes.get(m[1]);
+        if (!ficha) return error(res, 404, `Paciente ${m[1]} no encontrado en el ${indice.cupo.nombre.toLowerCase()}`);
+        return responder(res, 200, m[2] ? fs.readFileSync(ficha.fichero, "utf-8") : ficha.paciente);
+      }
+      if (ruta === "/Group") {
         return responder(res, 200, {
           resourceType: "Bundle",
           type: "searchset",
-          timestamp: idx.fecha,
-          total: idx.size,
-          entry: [...idx.values()].map(({ paciente }) => ({ resource: paciente })),
+          timestamp: indice.fecha,
+          total: 1,
+          entry: [{ fullUrl: `${base}/Group/${indice.grupoId}`, resource: grupo(indice, false), search: { mode: "match" } }],
         });
       }
-      const m = ruta.match(/^\/Patient\/([^/]+)\/\$everything$/);
+      m = ruta.match(/^\/Group\/([^/]+)(\/\$export)?$/);
       if (m) {
-        const ficha = idx.get(m[1]);
-        if (!ficha) return error(res, 404, `Paciente ${m[1]} no encontrado`);
-        return responder(res, 200, fs.readFileSync(ficha.fichero, "utf-8"));
+        if (m[1] !== indice.grupoId) return error(res, 404, `El grupo ${m[1]} no existe: el cupo activo es ${indice.grupoId}`);
+        if (!m[2]) return responder(res, 200, grupo(indice, true));
+        const formato = url.searchParams.get("_outputFormat");
+        if (formato && !/ndjson/.test(formato)) return error(res, 400, `Formato de salida no soportado: ${formato} (solo NDJSON)`);
+        const tipos = url.searchParams.get("_type");
+        const estado = `${base}/$export-status/${indice.cupo.id}-${indice.version}${tipos ? `?_type=${encodeURIComponent(tipos)}` : ""}`;
+        return responder(res, 202, null, "application/fhir+json; charset=utf-8", { "Content-Location": estado });
       }
       return error(res, 404, `Ruta no soportada: ${ruta}`);
     } catch (e) {
-      return error(res, 500, e.message);
+      return error(res, e.estado ?? 500, e.message);
     }
   }
 
-  return {
-    name: "servidor-fhir-simulado",
-    configureServer(server) {
-      server.middlewares.use("/fhir", atender);
-    },
-    configurePreviewServer(server) {
-      server.middlewares.use("/fhir", atender);
-    },
+  function leerCuerpo(req) {
+    return new Promise((resolve, reject) => {
+      const trozos = [];
+      req.on("data", (t) => trozos.push(t));
+      req.on("end", () => {
+        try {
+          resolve(JSON.parse(Buffer.concat(trozos).toString("utf-8") || "{}"));
+        } catch {
+          reject(new ErrorHttp(400, "El cuerpo no es JSON válido"));
+        }
+      });
+      req.on("error", reject);
+    });
+  }
+
+  // Administración de la estación (no es FHIR): qué cupo está activo.
+  async function atenderEstacion(req, res) {
+    const ruta = new URL(req.url, "http://localhost").pathname.replace(/\/+$/, "");
+    const json = (estado, cuerpo) => responder(res, estado, cuerpo, "application/json; charset=utf-8");
+    try {
+      if (req.method === "GET" && ruta === "/cupos") return json(200, estadoCupos());
+      if (req.method === "POST" && ruta === "/cupo") {
+        const { id } = await leerCuerpo(req);
+        if (!CUPOS.some((c) => c.id === id)) throw new ErrorHttp(400, `Cupo desconocido: ${id}`);
+        cargar(id); // deja el cupo leído (y falla aquí, sin cambiar nada, si no tiene datos)
+        activo = id;
+        return json(200, estadoCupos());
+      }
+      return json(404, { error: `Ruta no soportada: ${ruta}` });
+    } catch (e) {
+      return json(e.estado ?? 500, { error: e.message });
+    }
+  }
+
+  return { atenderFhir, atenderEstacion, estadoCupos };
+}
+
+// Plugin de Vite: monta el servidor FHIR en /fhir y la administración en /estacion, en el puerto de la estación.
+export default function servidorFhir(opciones) {
+  const estacion = crearEstacion(opciones);
+  const montar = (server) => {
+    server.middlewares.use("/fhir", (req, res) => estacion.atenderFhir(req, res, "/fhir"));
+    server.middlewares.use("/estacion", (req, res) => estacion.atenderEstacion(req, res));
   };
+  return { name: "servidor-fhir-simulado", configureServer: montar, configurePreviewServer: montar };
+}
+
+// Por su cuenta (sin la interfaz de la estación): node servidor-fhir.js --port 5174
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const opcion = (nombre, defecto) => {
+    const i = process.argv.indexOf(`--${nombre}`);
+    return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : defecto;
+  };
+  const puerto = Number(opcion("port", process.env.PORT ?? 5174));
+  const estacion = crearEstacion({ datos: path.resolve(opcion("datos", process.env.SIMULADOR_DATOS ?? DATOS_POR_DEFECTO)), cupoInicial: opcion("cupo", process.env.SIMULADOR_CUPO ?? "demo") });
+  http
+    .createServer((req, res) => {
+      for (const [prefijo, atender] of [["/fhir", estacion.atenderFhir], ["/estacion", estacion.atenderEstacion]]) {
+        if (req.url === prefijo || req.url.startsWith(`${prefijo}/`) || req.url.startsWith(`${prefijo}?`)) {
+          req.url = req.url.slice(prefijo.length) || "/";
+          return atender(req, res, prefijo);
+        }
+      }
+      res.statusCode = 404;
+      return res.end("Servidor FHIR de la estación clínica simulada: use /fhir/metadata");
+    })
+    // Mismo criterio que Vite: escucha en "localhost" (en Windows es ::1, que es lo primero que prueban los clientes)
+    .listen(puerto, opcion("host", "localhost"), () => console.log(`Servidor FHIR de la estación clínica simulada: http://localhost:${puerto}/fhir (cupo activo: ${estacion.estadoCupos().activo})`));
 }

@@ -226,10 +226,14 @@ casos trampa es continuen detectant i P007 i P008 continuen sense alertes.
 
 ## 12. Cohort realista i selector de cohort (14/11/2026)
 
+> **Actualització 15/11/2026 (secció 14):** la cohort ja no es tria a la web de l'add-on. Les dues cohorts
+> són dades de l'estació clínica simulada (`simulador/datos`), el cupo actiu es tria a l'estació i l'add-on
+> el llegeix per FHIR. El paràmetre `cohort` només queda per a `source=local` (tests).
+
 Detall, fonts i taula comparativa a `docs/cohort_realista.md`.
 
-- **Dues cohorts.** "Demo (100)" (`data/synthetic`, intacta: 8 casos trampa i prevalences inflades per a
-  la demo) i "Cupo realista (1.500)" (`data/realista`), generada amb
+- **Dues cohorts.** "Demo (100)" (`simulador/datos/demo`, intacta: 8 casos trampa i prevalences inflades per a
+  la demo) i "Cupo realista (1.500)" (`simulador/datos/realista`), generada amb
   `python scripts/generate_patients.py --perfil realista --n 1500` (llavor fixa) i calibrada amb REGICOR
   (factors de risc) i ENRICA (MRC), estratificat per edat i sexe. Paràmetres a `config/cohort_realista.yaml`.
 - **Pacients individuals, no taules.** Cada pacient té el seu historial de 4 anys. Les prevalences
@@ -237,10 +241,10 @@ Detall, fonts i taula comparativa a `docs/cohort_realista.md`.
   pacient perquè els factors s'acumulin en els mateixos pacients (com a ENRICA).
 - **Taxes per edat abans que el total.** La MRC es genera amb les taxes per edat d'ENRICA; amb una piràmide
   d'edat actual el total surt 17,5% (ENRICA: 15,1%). Pendent que el metge digui què prefereix fixar.
-- **"Veritat" del generador** a `data/realista/veritat.csv`: permet saber quantes MRC sense diagnosticar
+- **"Veritat" del generador** a `simulador/datos/realista/veritat.csv`: permet saber quantes MRC sense diagnosticar
   hi ha de debò (175) i quantes en detecta el motor (129, sense falsos positius).
 - **Només local.** La cohort realista no es puja al servidor FHIR públic: l'script de pujada només llegeix
-  `data/synthetic` i l'API la llegeix del disc (CSV). Amb `cohort=realista`, la font és sempre local.
+  `simulador/datos/demo` i l'API la llegeix del disc (CSV). Amb `cohort=realista`, la font és sempre local.
 - **L'IMC** s'afegeix al catàleg de proves (LOINC 39156-5) només per a aquesta cohort; el motor no el fa servir.
 - **API:** paràmetre `cohort=demo|realista` a `/api/cupo`, `/api/pacientes/{id}`, `/api/export/excel` i al
   servei CDS Hooks; `GET /api/cohorts` diu quines hi ha. Si la realista no està generada, es torna a la
@@ -266,7 +270,7 @@ una pantalla més d'una mateixa web. Substitueix la part de l'estació simulada 
   estació clínica (`simulador/`, 5174), amb el seu `package.json`. El simulador no importa res de l'add-on ni
   crida `/api/...`: només `GET /cds-services`, `POST /cds-services/<servei>` i la URL de llançament.
 - **L'estació té la seva pròpia història clínica.** Un plugin de Vite (`simulador/servidor-fhir.js`) serveix
-  els bundles de `data/synthetic/fhir` com un servidor FHIR de només lectura (`/fhir/Patient`,
+  els bundles de `simulador/datos/demo/fhir` com un servidor FHIR de només lectura (`/fhir/Patient`,
   `/fhir/Patient/{id}/$everything`, `/fhir/metadata`). Per això l'estació funciona sencera sense l'add-on, i
   no necessita Python. La "data d'avui" de la simulació és el `timestamp` dels bundles (13/11/2026).
 - **Instal·lació per URL.** A "Configuración → Integraciones" hi ha un sol camp (la URL de l'add-on, per
@@ -290,8 +294,87 @@ una pantalla més d'una mateixa web. Substitueix la part de l'estació simulada 
   falten, comproven versions i ports, i imprimeixen les URL. Els `.bat` fan servir `npm.cmd`.
 - **El motor no s'ha tocat.** Cap canvi a `engine/`, `model/`, `connectors/`, `config/` ni a les dades; els
   resultats de les dues cohorts i les tres escales són idèntics byte a byte als d'abans.
-- **Què queda pendent.** (1) El generador i les dades segueixen a `scripts/` i `data/`: moure'ls a
-  `simulador/` trencaria camins del motor, l'API, els tests i la pujada al FHIR remot. (2) L'add-on i
-  l'estació llegeixen la mateixa carpeta de dades; l'add-on encara no llegeix del servidor FHIR de l'estació
-  (el `fhirServer` de la petició no es fa servir). (3) El simulador només mostra la cohort demo.
+- **Què quedava pendent (resolt a la secció 14).** Les dades eren a `data/`, l'add-on i l'estació llegien
+  la mateixa carpeta i el simulador només mostrava la cohort demo.
 
+## 14. Les dades són de l'estació: l'add-on les llegeix per FHIR (15/11/2026)
+
+Objectiu: que la demo funcioni com la realitat. Les dades dels pacients són de l'estació clínica; l'add-on
+**no té dades pròpies** i les llegeix del servidor FHIR de l'estació, que li arriba per tres estàndards.
+
+```
+ESTACIÓ (simulador, 5174)                                   ADD-ON (API 8000 + interfície 5173)
+  simulador/datos/<cupo>/fhir   <- les dades són aquí
+  servidor FHIR  /fhir   <----------- GET Patient/{id}/$everything ------  targeta CDS i fitxa
+                         <----------- GET Group, Group/{id}/$export ------  cupo sencer (Bulk Data, NDJSON)
+  obrir un pacient  ---- POST /cds-services/... { fhirServer, context.patientId [, prefetch] } --->
+  botó / targeta    ---- iframe  launchUrl/?iss=<servidor FHIR>&launch=<context> ---------------->
+```
+
+- **Les dades es mouen al simulador.** `data/synthetic` -> `simulador/datos/demo` i `data/realista` ->
+  `simulador/datos/realista` (fhir/, csv/ i veritat.csv). El generador continua a `scripts/` (és una eina de
+  desenvolupament), però escriu allà. S'han actualitzat les rutes del generador, l'API, el CLI, els tests,
+  `upload_to_fhir.py` i els scripts d'arrencada. Cap fitxer de dades ha canviat de contingut.
+- **Servidor FHIR R4 de l'estació** (`simulador/servidor-fhir.js`, sense dependències). Corre dins del
+  servidor de l'estació (plugin de Vite, port 5174) i també sol (`node simulador/servidor-fhir.js --port N`,
+  que és com el proven els tests). Només lectura i sense autenticació. Rutes: `metadata`, cerca de `Patient`
+  (`name`, `_id`, `identifier`, `_count`), `Patient/{id}`, `Patient/{id}/$everything`, `Group` (el cupo actiu)
+  i l'exportació.
+- **Cupo actiu = recurs Group.** L'estació té dos cupos (`Cupo demo`, 100, i `Cupo realista`, 1.500) i un
+  d'actiu, que es tria a "Configuración → Cupo / centro" (`GET /estacion/cupos`, `POST /estacion/cupo`: són
+  administració de l'estació, no FHIR). L'estat és del servidor, no del navegador: així el servidor FHIR, la
+  història clínica i l'add-on veuen sempre el mateix cupo. `GET /fhir/Group` retorna el Group del cupo actiu
+  amb `quantity` i `meta.versionId` (empremta del contingut dels fitxers).
+- **FHIR Bulk Data simplificat.** `GET /fhir/Group/{id}/$export` respon `202` amb `Content-Location`;
+  l'estat (`/fhir/$export-status/{treball}`) retorna el manifest (`transactionTime`, `output` amb un fitxer
+  per tipus) i cada fitxer és NDJSON (`application/fhir+ndjson`). És el flux de l'especificació; el que és
+  simplificat és que l'exportació acaba a l'instant, no hi ha OAuth (`requiresAccessToken: false`) ni
+  cancel·lació, i el treball no guarda estat (el seu identificador és cupo + versió de les dades).
+- **Connector `fhir_ehr`** (`connectors/fhir_ehr_connector.py`). `cupo()` llegeix el Group (una petició
+  lleugera), `llegeix_pacient(id)` fa `$everything`, `carrega_cupo()` fa l'exportació Bulk Data (segueix el
+  `202`, consulta l'estat fins que acaba, baixa els NDJSON) i deixa el cupo en memòria. Reaprofita la lectura
+  de recursos del connector FHIR de fitxers. Només accepta adreces del mateix servidor que la base (no
+  segueix un `Content-Location` o un `output.url` que apunti a un altre lloc). L'edat es calcula amb la data
+  de les dades de l'estació (`timestamp` / `transactionTime`), igual que fa el connector de fitxers.
+- **CDS Hooks.** El servei llegeix el pacient, per aquest ordre: (1) del `prefetch` de la petició, si porta
+  les quatre claus que anuncia el discovery (`patient`, `observations`, `conditions`, `medications`);
+  (2) del `fhirServer` de la petició (`Patient/{id}/$everything`); (3) de l'estació per defecte. Si no pot
+  llegir les dades respon `412 Precondition Failed`, com demana l'especificació. L'estació simulada envia
+  `fhirServer` i no resol el prefetch (és opcional per a l'estació): així la demo ensenya la lectura FHIR.
+  La targeta ja no depèn del cupo: un sol pacient, una sola petició.
+- **Llançament SMART simulat.** L'estació obre la interfície amb `?iss=<servidor FHIR>&launch=<context>`.
+  La interfície no llegeix FHIR directament: reenvia l'`iss` a l'API (`/api/cupo?iss=...`,
+  `/api/pacientes/{id}?iss=...`, `/api/export/excel?iss=...`). Sense `iss`, l'API fa servir
+  `CARDIOALERT_FHIR_URL` (per defecte `http://localhost:5174/fhir`). Continua sense OAuth.
+- **Dos botons, dues pantalles.** El context del llançament porta `intent` (paràmetre de context de SMART):
+  el botó de la barra d'eines envia `lista-trabajo` i obre la pàgina principal (alertes, "Hoy" i llista de
+  prioritats); l'enllaç de la targeta envia `ficha-paciente` i obre la fitxa. En tots dos casos el pacient
+  obert viatja com a context i queda a un clic ("Ficha de P003").
+- **Memòria per servidor FHIR.** L'API guarda un connector per `iss` amb el cupo exportat i les avaluacions
+  fetes amb ell. A cada petició del cupo mira el Group de l'estació (mil·lisegons): si l'empremta
+  (`id | quantity | versionId`) ha canviat, torna a exportar i a avaluar. `refresh=true` (botó "Actualizar"
+  de la capçalera) ho força. Un canvi a `rules.yaml` torna a avaluar però no torna a llegir l'estació.
+  La fitxa llegeix el pacient en viu (`$everything`), sense esperar l'exportació del cupo.
+- **Quins servidors FHIR s'accepten.** `fhirServer` i `iss` arriben de fora: l'API només llegeix de les
+  adreces que encaixen amb `CARDIOALERT_FHIR_PERMITIDOS` (per defecte, només aquest ordinador) i respon
+  `403` a la resta. En un desplegament real serien les estacions registrades, amb el seu token.
+- **Si l'estació no respon.** `502` amb un missatge clar (la web el mostra amb "Reintentar"); al hook, `412`.
+  No hi ha cap pla B amb fitxers locals: l'add-on no té dades pròpies.
+- **Interfície de l'add-on.** Sense selector de cohort ni de font. La capçalera diu, només com a informació,
+  "Datos de: Estación clínica simulada – Cupo realista (1.500)" (el nom surt del `CapabilityStatement` i del
+  Group) i l'adreça del servidor FHIR.
+- **Altres fonts.** Els connectors `csv`, `fhir` (fitxers) i `fhir_remote` (HAPI) es mantenen per als tests
+  i com a exemple: `source=local|remote` i `cohort=demo|realista` a l'API, i
+  `create_app(font_per_defecte="local")` als tests antics. No són el camí de la demo ni surten a la web.
+  `python -m engine` llegeix els fitxers de la cohort demo; amb `--ehr` llegeix de l'estació.
+- **Resultats idèntics.** El motor, les fórmules, els llindars i `rules.yaml` no s'han tocat. Llegint de
+  l'estació (Bulk Data i `$everything`), els resultats de les dues cohorts i les tres escales són idèntics
+  byte a byte als d'abans del canvi (`tests/test_fhir_ehr.py` ho comprova amb una estació simulada i amb el
+  servidor Node real).
+- **Temps (portàtil de desenvolupament, 15/11/2026).** Cupo realista des de l'estació: uns 1,6 s a l'API
+  (1,1 s d'exportació Bulk Data i lectura de 32 MB de NDJSON, 0,3 s de motor, la resta serialització) i uns
+  2 s al navegador des del clic fins a la llista pintada. Després, 0,04 s (memòria). Cupo demo: 0,1 s.
+  Fitxa i targeta CDS: menys de 10 ms.
+- **Límits.** Sense OAuth ni `fhirAuthorization` (simulació). L'estació no resol el prefetch. El cupo es
+  demana sencer (sense `_since`): amb cupos molt més grans caldria exportació incremental. El servidor FHIR
+  del simulador guarda l'índex en memòria: si es regeneren les dades cal reiniciar l'estació.

@@ -25,12 +25,13 @@ async function request(input, init) {
   return body;
 }
 
-// `sel` = { source, cohort }: la fuente de datos y la cohorte ("demo" o "realista") elegidas en la cabecera.
+// El add-on no tiene datos propios: la API los lee del servidor FHIR de la estación clínica.
+// `sel` = { iss }: la dirección de ese servidor, tal como la entrega la estación al abrir el add-on (el `iss`
+// del lanzamiento SMART). Sin `iss`, la API usa la estación que tiene configurada por defecto.
 export const api = {
-  cohorts: (signal) => request(url("/api/cohorts"), { signal }),
-  cupo: ({ source, cohort }, signal) => request(url("/api/cupo", { source, cohort }), { signal }),
-  pacient: (id, { source, cohort }, signal) =>
-    request(url(`/api/pacientes/${encodeURIComponent(id)}`, { source, cohort }), { signal }),
+  // `refresh`: vuelve a leer el cupo de la estación (exportación Bulk Data) aunque ya esté en memoria.
+  cupo: ({ iss }, { refresh = false } = {}, signal) => request(url("/api/cupo", { iss, refresh: refresh ? "true" : null }), { signal }),
+  pacient: (id, { iss }, signal) => request(url(`/api/pacientes/${encodeURIComponent(id)}`, { iss }), { signal }),
   rules: (signal) => request(url("/api/rules"), { signal }),
   saveRules: (canvis) =>
     request(url("/api/rules"), {
@@ -38,5 +39,5 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ canvis }),
     }),
-  excelUrl: ({ source, cohort }) => url("/api/export/excel", { source, cohort }),
+  excelUrl: ({ iss }) => url("/api/export/excel", { iss }),
 };

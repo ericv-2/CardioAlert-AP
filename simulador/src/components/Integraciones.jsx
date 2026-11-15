@@ -70,13 +70,12 @@ export default function Integraciones({ instalacion, estadoAddon, onInstalada, o
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4">
+    <div className="space-y-4">
       <div>
-        <p className="text-sm text-slate-500">Configuración › Integraciones</p>
-        <h1 className="text-xl font-semibold text-slate-900">Integraciones</h1>
+        <h2 className="text-base font-semibold text-slate-900">Integraciones</h2>
         <p className="mt-1 max-w-3xl text-sm text-slate-600">
-          Add-ons de apoyo a la decisión clínica que se conectan a esta estación con el estándar HL7 CDS Hooks. La estación funciona igual sin
-          ninguno instalado.
+          Add-ons de apoyo a la decisión clínica que se conectan a esta estación por estándares: HL7 CDS Hooks para las tarjetas y el servidor FHIR
+          de la estación para leer los datos de los pacientes. La estación funciona igual sin ninguno instalado.
         </p>
       </div>
 
@@ -116,7 +115,7 @@ export default function Integraciones({ instalacion, estadoAddon, onInstalada, o
               </div>
               <p id="url-ayuda" className="mt-1.5 text-sm text-slate-600">
                 Al instalar, la estación consulta <span className="font-mono text-xs">GET {"{URL}"}/cds-services</span> (discovery) y registra los servicios
-                que encuentra. No se envía ningún dato de pacientes.
+                que encuentra. No se envía ningún dato de pacientes: el add-on los leerá del servidor FHIR de la estación cuando los necesite.
               </p>
             </div>
             {error && (
@@ -168,17 +167,19 @@ export default function Integraciones({ instalacion, estadoAddon, onInstalada, o
                 <li className="flex items-start gap-2">
                   <PanelRight className="mt-0.5 size-4 shrink-0 text-teal-700" aria-hidden="true" />
                   <span>
-                    Panel «Apoyo a la decisión» al abrir un paciente: la estación lanza el hook <span className="font-mono text-xs">patient-view</span> y
-                    muestra la tarjeta del add-on.
+                    Panel «Apoyo a la decisión» al abrir un paciente: la estación lanza el hook <span className="font-mono text-xs">patient-view</span> con
+                    la dirección de su servidor FHIR (<span className="font-mono text-xs">fhirServer</span>) y muestra la tarjeta del add-on, que enlaza con
+                    la ficha del paciente.
                   </span>
                 </li>
                 {instalacion.app ? (
                   <li className="flex items-start gap-2">
                     <AppWindow className="mt-0.5 size-4 shrink-0 text-teal-700" aria-hidden="true" />
                     <span>
-                      Botón «{instalacion.app.titulo}» en la barra de herramientas: abre la interfaz del add-on (
-                      <span className="break-all font-mono text-xs">{instalacion.app.launchUrl}</span>) en una ventana sobre la estación, con el paciente y
-                      el profesional como contexto (lanzamiento SMART on FHIR simulado).
+                      Botón «{instalacion.app.titulo}» en la barra de herramientas: abre la página principal del add-on (
+                      <span className="break-all font-mono text-xs">{instalacion.app.launchUrl}</span>) en una ventana sobre la estación, con las alertas, la
+                      lista «Hoy» y las prioridades del cupo activo. La estación le pasa su servidor FHIR (<span className="font-mono text-xs">iss</span>) y
+                      el profesional y el paciente como contexto (lanzamiento SMART on FHIR simulado).
                     </span>
                   </li>
                 ) : (

@@ -46,7 +46,27 @@ function paciente(p, referencia) {
   };
 }
 
-// Agenda: los pacientes del cupo. `fecha` es el "hoy" de la simulación (fecha de extracción de los datos).
+// Cupos de la estación y cuál está activo (administración de la estación, no es FHIR).
+async function pedirEstacion(ruta, opciones) {
+  let res;
+  try {
+    res = await fetch(`/estacion${ruta}`, opciones);
+  } catch (e) {
+    if (e.name === "AbortError") throw e;
+    throw new Error("La estación no responde (¿está arrancado el simulador?).");
+  }
+  const cuerpo = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(cuerpo?.error || `Error ${res.status} de la estación`);
+  return cuerpo;
+}
+
+export const cargarCupos = (signal) => pedirEstacion("/cupos", { signal });
+
+// Cambia el cupo activo: a partir de aquí el servidor FHIR de la estación sirve los pacientes de ese cupo.
+export const activarCupo = (id) =>
+  pedirEstacion("/cupo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+
+// Agenda: los pacientes del cupo activo. `fecha` es el "hoy" de la simulación (fecha de extracción de los datos).
 export async function cargarAgenda(signal) {
   const bundle = await pedir("/Patient", signal);
   const hoy = dia(bundle.timestamp) ?? new Date().toISOString().slice(0, 10);

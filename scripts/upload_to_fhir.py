@@ -1,11 +1,11 @@
-"""Puja els pacients SINTÈTICS de data/synthetic/fhir a un servidor FHIR R4 (per defecte, el públic de HAPI).
+"""Puja els pacients SINTÈTICS de simulador/datos/demo/fhir a un servidor FHIR R4 (per defecte, el públic de HAPI).
 
     python scripts/upload_to_fhir.py                 # puja (o actualitza) els 100 pacients
     python scripts/upload_to_fhir.py --esborra       # esborra del servidor tot el que hem pujat
     python scripts/upload_to_fhir.py --base URL      # un altre servidor FHIR R4
 
 NOMÉS DADES SINTÈTIQUES: el servidor de HAPI és públic i qualsevol hi pot llegir. L'script només llegeix
-de data/synthetic/fhir (generat per scripts/generate_patients.py) i no accepta cap altra carpeta.
+de simulador/datos/demo/fhir (generat per scripts/generate_patients.py) i no accepta cap altra carpeta.
 
 Cada recurs es puja amb:
 - la nostra etiqueta a `meta.tag` (urn:cardioalert-ap | the-goats-hackathon), que és el que filtra
@@ -31,7 +31,7 @@ sys.path.insert(0, str(ARREL))
 from connectors.fhir_remote_connector import (  # noqa: E402
     BASE_PER_DEFECTE, ETIQUETA, SISTEMA_ETIQUETA, SISTEMA_ID_PACIENT)
 
-CARPETA = ARREL / "data" / "synthetic" / "fhir"
+CARPETA = ARREL / "simulador" / "datos" / "demo" / "fhir"
 PREFIX = "thegoats-"
 META = {
     "tag": [{"system": SISTEMA_ETIQUETA, "code": ETIQUETA, "display": "The GOATS - datos sintéticos de hackathon"}],

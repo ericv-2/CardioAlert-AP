@@ -6,7 +6,7 @@ de manera que qualsevol alerta és auditable (regla, dades, sistema d'origen i c
 Ús:
     from connectors import FhirConnector
     from engine import RiskEngine
-    motor = RiskEngine(FhirConnector("data/synthetic/fhir"))
+    motor = RiskEngine(FhirConnector("simulador/datos/demo/fhir"))
     cupo = motor.avalua_cupo()          # llista de ResultatPacient ordenada per prioritat
     fitxa = motor.avalua("P003")
 

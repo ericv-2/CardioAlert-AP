@@ -1,7 +1,7 @@
 """Generador de pacients sintètics (seed fixa) en FHIR R4 i CSV.
 
-Ús:  python scripts/generate_patients.py                                  cohort demo (100 pacients, data/synthetic)
-     python scripts/generate_patients.py --perfil realista --n 1500      cupo realista (data/realista, només local)
+Ús:  python scripts/generate_patients.py                                  cohort demo (100 pacients, simulador/datos/demo)
+     python scripts/generate_patients.py --perfil realista --n 1500      cupo realista (simulador/datos/realista, només local)
 
 Criteris documentats a docs/dades_sintetiques.md (demo) i docs/cohort_realista.md (realista), pendents de
 validar pel metge.
@@ -33,7 +33,7 @@ SEED = 42
 N_PACIENTS = 100
 DATA_REF = date(2026, 11, 13)  # "avui" de la demo; final de l'històric
 INICI = date(2022, 11, 1)  # inici de l'històric
-SORTIDA = ARREL / "data" / "synthetic"
+SORTIDA = ARREL / "simulador" / "datos" / "demo"
 
 # Nombre total de pacients amb cada condició (sobre 100, casos trampa inclosos)
 OBJECTIUS = {"hta": 40, "dislipemia": 43, "fumador": 24, "dm2": 30, "mrc": 20, "ic": 5}
@@ -683,7 +683,7 @@ def main(argv: list[str] | None = None) -> None:
                         help="[realista] part de les MRC sense diagnòstic registrat (0-1; per defecte 2/3)")
     parser.add_argument("--prevalenca-ic", type=float, metavar="PCT",
                         help="[realista] prevalença d'insuficiència cardíaca en %% (per defecte, la de la config)")
-    parser.add_argument("--sortida", help="[realista] carpeta de sortida (per defecte data/realista)")
+    parser.add_argument("--sortida", help="[realista] carpeta de sortida (per defecte simulador/datos/realista)")
     args = parser.parse_args(argv)
     if args.perfil == "realista":
         main_realista(args)

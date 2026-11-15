@@ -21,6 +21,7 @@ cat <<'EOF'
  ------------------------------------------------------------
   En la estación: Configuración → Integraciones → Instalar
   (URL del add-on: http://localhost:8000). Ctrl+C para parar los dos.
+  El add-on lee los datos del servidor FHIR de la estación.
  ============================================================
 
 EOF

@@ -1,6 +1,7 @@
 @echo off
 rem Arranca SOLO el add-on CardioAlert AP: la API (puerto 8000) y su interfaz (puerto 5173).
 rem No arranca la estacion clinica simulada (para eso: start_simulador.bat).
+rem El add-on no tiene datos propios: los lee del servidor FHIR de la estacion clinica.
 chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
@@ -61,6 +62,9 @@ echo   CDS Hooks (discovery): http://localhost:8000/cds-services
 echo  ------------------------------------------------------------
 echo   URL para instalar el add-on en la estacion clinica:
 echo                          http://localhost:8000
+echo   El add-on NO tiene datos propios: los lee del servidor FHIR
+echo   de la estacion clinica ^(http://localhost:5174/fhir^).
+echo   Arranque tambien la estacion: start_simulador.bat
 echo   Para parar: Ctrl+C o cierre esta ventana.
 echo  ============================================================
 echo.

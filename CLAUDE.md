@@ -46,48 +46,88 @@ El sistema debe cruzar automáticamente variables y tendencias, no solo valores 
 ### Dos aplicaciones: el ADD-ON y el SIMULADOR
 - **ADD-ON (el producto, CardioAlert AP):** motor (`engine/`), API (`api/`, puerto 8000, con el servicio CDS
   Hooks) y su interfaz completa (`frontend/`, puerto 5173: lista "Hoy", cupo, ficha, parámetros).
-  Funciona por su cuenta, sin ninguna estación clínica.
+  **NO tiene datos propios:** los lee del servidor FHIR de la estación clínica (conector `fhir_ehr`).
 - **SIMULADOR (`simulador/`, puerto 5174):** la estación clínica de una comunidad, una aplicación web aparte
-  con su propia historia clínica. Por defecto NO tiene el add-on: se instala por URL en
-  "Configuración → Integraciones". Solo habla con el add-on por estándares (CDS Hooks + lanzamiento SMART on
-  FHIR simulado); no importa código del add-on ni llama a `/api/...`.
+  con su propia historia clínica. **Los datos de los pacientes son suyos** (`simulador/datos`, las dos
+  cohortes) y los sirve su servidor FHIR (`/fhir`). Por defecto NO tiene el add-on: se instala por URL en
+  "Configuración → Integraciones". Solo habla con el add-on por estándares (CDS Hooks, lanzamiento SMART on
+  FHIR simulado y FHIR Bulk Data); no importa código del add-on ni llama a `/api/...`.
+
+### Flujo de datos (docs/decisions.md §14) — los datos son de la estación, como en la realidad
+- **CDS Hooks `fhirServer`:** al abrir un paciente, la estación envía el hook `patient-view` con `fhirServer`
+  (su servidor FHIR). El add-on lee el paciente de ahí (`Patient/{id}/$everything`) o del `prefetch` si la
+  petición lo trae completo (el discovery anuncia las plantillas); si no puede leer, responde 412.
+- **SMART `iss`:** la estación abre la interfaz del add-on con `?iss=<su servidor FHIR>&launch=<contexto>`
+  (paciente, profesional e `intent`). La interfaz reenvía el `iss` a la API (`/api/cupo?iss=`,
+  `/api/pacientes/{id}?iss=`, `/api/export/excel?iss=`). Sin `iss`: `CARDIOALERT_FHIR_URL`
+  (http://localhost:5174/fhir). Lanzamiento SIMULADO, sin OAuth.
+- **Bulk Data:** el cupo completo se lee con `GET {iss}/Group` (cupo activo) y `Group/{id}/$export`
+  (202 + `Content-Location` -> manifiesto -> NDJSON por tipo de recurso). Simplificado: termina al instante,
+  sin OAuth ni cancelación.
+- **Memoria por servidor FHIR:** la API guarda el cupo exportado y evaluado de cada `iss`; lo vuelve a leer si
+  la estación cambia de cupo o de datos (lo ve en el `Group`: id, `quantity`, `meta.versionId`) o con
+  `refresh=true` (botón "Actualizar" de la cabecera). Un cambio en `rules.yaml` reevalúa sin releer.
+- **Cupo activo:** en la estación, "Configuración → Cupo / centro" (demo de 100 o realista de 1.500). Es
+  estado del servidor de la estación (`GET /estacion/cupos`, `POST /estacion/cupo`), no del navegador.
+- **Dos botones:** el botón "CardioAlert AP" de la barra de herramientas abre la PÁGINA PRINCIPAL del add-on
+  (`intent: "lista-trabajo"`); el enlace de la tarjeta, la FICHA del paciente (`intent: "ficha-paciente"`).
+- **Cabecera del add-on:** sin selector de cohorte ni de fuente; solo informa "Datos de: Estación clínica
+  simulada – Cupo realista (1.500)". Si la estación no responde: 502 con mensaje y "Reintentar" (no hay plan B
+  con ficheros). Solo se leen servidores FHIR de `CARDIOALERT_FHIR_PERMITIDOS` (por defecto, este ordenador).
+- **Otras fuentes (NO son el camino de la demo):** `source=local|remote` y `cohort=demo|realista` en la API,
+  solo para tests y como ejemplo; los tests antiguos usan `create_app(font_per_defecte="local")`.
+- **Tiempos medidos (15/11/2026):** cupo realista desde la estación ~1,6 s en la API (1,1 s de Bulk Data,
+  32 MB de NDJSON) y ~2 s en el navegador; después 0,04 s (memoria). Demo 0,1 s. Ficha y tarjeta < 10 ms.
 
 ### Estructura
 ```
 connectors/   Capa de datos. base.py (interfaz Connector: get_patients, get_patient_data),
-              fhir_connector.py, csv_connector.py y fhir_remote_connector.py (servidor FHIR remoto, solo
-              recursos con nuestra etiqueta). Devuelven siempre el modelo de model/.
+              fhir_ehr_connector.py (EL DE LA DEMO: servidor FHIR de la estación; Group, $everything, Bulk Data
+              y prefetch de CDS Hooks), y, para tests y como ejemplo de otras fuentes, fhir_connector.py
+              (ficheros), csv_connector.py y fhir_remote_connector.py (HAPI público, solo recursos con nuestra
+              etiqueta). Devuelven siempre el modelo de model/.
 model/        entitats.py (dataclasses Pacient, Analitica [con `origen`], Diagnostic, Medicacio, DadesPacient),
               cataleg.py (LOINC, CIAP-2/CIE-10, grupos ATC), formules.py (CKD-EPI 2009 y 2021).
 config/       rules.yaml: `rules` (las 8 reglas con "enabled", umbrales, "evidencia" y "pes") y `motor`
               (ecuación FGe, fecha de referencia, FRA, derivación, oportunidades terapéuticas, prioridad).
               Todo pendiente de validar por el médico.
 engine/       Motor de reglas determinista (ver "Motor de reglas" más abajo).
-scripts/      generate_patients.py: generador sintético (seed 42) -> data/synthetic/; con `--perfil realista`
-              llama a cohort_realista.py (cupo calibrado con REGICOR y ENRICA) -> data/realista/.
-              upload_to_fhir.py: sube (o borra con --esborra) los 100 bundles al servidor FHIR remoto.
-data/synthetic/  fhir/ (un bundle FHIR R4 por paciente) y csv/ (patients, observations, conditions, medications).
-data/realista/   cohorte realista (1.500 pacientes R0001-R1500, SOLO LOCAL): fhir/, csv/ y veritat.csv (lo que
-              el generador "sabe" de cada paciente). Parámetros en config/cohort_realista.yaml.
-tests/        test_cohort_realista.py (prevalencias objetivo y coherencia de la cohorte realista),
+scripts/      generate_patients.py: generador sintético (seed 42) -> simulador/datos/demo/; con `--perfil
+              realista` llama a cohort_realista.py (cupo calibrado con REGICOR y ENRICA) ->
+              simulador/datos/realista/. upload_to_fhir.py: sube (o borra con --esborra) los 100 bundles de
+              la cohorte demo al servidor FHIR remoto.
+simulador/datos/demo/      DATOS DE LA ESTACIÓN. fhir/ (un bundle FHIR R4 por paciente) y csv/ (patients,
+              observations, conditions, medications). Ya no existe la carpeta data/.
+simulador/datos/realista/  cohorte realista (1.500 pacientes R0001-R1500, nunca al servidor público): fhir/,
+              csv/ y veritat.csv (lo que el generador "sabe" de cada paciente). Parámetros en
+              config/cohort_realista.yaml.
+tests/        test_fhir_ehr.py (el add-on lee de la estación: conector fhir_ehr, fhirServer, prefetch, iss,
+              Bulk Data, memoria por servidor; con una estación simulada y con el servidor Node real del
+              simulador; resultados idénticos a los de los ficheros),
+              test_cohort_realista.py (prevalencias objetivo y coherencia de la cohorte realista),
               test_connectors.py (FHIR == CSV + 8 casos trampa), test_dades_sintetiques.py (coherencia),
               test_engine.py (fórmulas, casos trampa, selección de escala ESC, CKD Add-on, cortes por edad,
               REGICOR, volante), test_api.py, test_cds_hooks.py, test_export_excel.py, test_fhir_remote.py (servidor simulado).
 docs/         dades_sintetiques.md (criterios de generación), decisions.md (decisiones de diseño) y
               cohort_realista.md (fuentes, prevalencias objetivo y obtenidas de la cohorte realista).
 api/          ADD-ON. main.py (FastAPI + CORS: /api/cupo, /api/pacientes/{id}, /api/export/excel, /api/rules y el
-              servicio CDS Hooks /cds-services), cds_hooks.py (traduce un ResultatPacient a una tarjeta CDS y
-              anuncia la interfaz del add-on en el discovery) y rules_store.py (edición validada de rules.yaml:
-              lista blanca, rangos, copia en config/backups/).
-frontend/     ADD-ON: su interfaz (React + Vite + Tailwind + Lucide, puerto 5173). src/App.jsx (rutas por hash y
-              selectores), src/launch.js (contexto de lanzamiento desde una estación clínica),
-              src/components/: Header, CupoView (Vista 1, con "Hoy"), PatientView + RenalChart + NoteModal
-              (Vista 2), RulesView (Vista 3). Sin lógica clínica: todo viene de la API. Ya NO contiene la estación.
+              servicio CDS Hooks /cds-services; lee de la estación por `iss` / `fhirServer` y guarda el cupo
+              en memoria por servidor FHIR), cds_hooks.py (traduce un ResultatPacient a una tarjeta CDS y
+              anuncia el prefetch y la interfaz del add-on en el discovery) y rules_store.py (edición validada
+              de rules.yaml: lista blanca, rangos, copia en config/backups/).
+frontend/     ADD-ON: su interfaz (React + Vite + Tailwind + Lucide, puerto 5173). src/App.jsx (rutas por hash),
+              src/launch.js (`iss` y contexto de lanzamiento desde una estación clínica), src/api.js (reenvía
+              el `iss` a la API), src/components/: Header ("Datos de: …" y botón "Actualizar"; SIN selectores),
+              CupoView (Vista 1, con "Hoy"), PatientView + RenalChart + NoteModal (Vista 2), RulesView
+              (Vista 3). Sin lógica clínica: todo viene de la API. Ya NO contiene la estación.
 simulador/    SIMULADOR: estación clínica simulada (React + Vite + Tailwind, puerto 5174), aplicación aparte con
-              su propio package.json. servidor-fhir.js (plugin de Vite: servidor FHIR de solo lectura en /fhir
-              sobre data/synthetic/fhir), src/historia.js (lee ese FHIR), src/integracion.js (instalación en
-              localStorage, discovery, hook patient-view, lanzamiento), src/components/: Agenda, Historia,
-              Integraciones (Configuración → Integraciones), PanelCds, ModalAddon (iframe con el add-on).
+              su propio package.json. datos/ (las dos cohortes). servidor-fhir.js (servidor FHIR R4 de solo
+              lectura, sin dependencias: plugin de Vite en /fhir y también `node servidor-fhir.js --port N`;
+              Patient, $everything, Group del cupo activo, $export Bulk Data y /estacion/cupo),
+              src/historia.js (lee ese FHIR y cambia el cupo activo), src/integracion.js (instalación en
+              localStorage, discovery, hook patient-view con fhirServer, lanzamiento con iss e intent),
+              src/components/: Agenda, Historia, CupoCentro (Configuración → Cupo / centro), Integraciones
+              (Configuración → Integraciones), PanelCds, ModalAddon (iframe con el add-on).
 start_addon / start_simulador / start_demo (.bat y .sh)   scripts de arranque (ver Comandos).
 exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no versionado).
 ```
@@ -96,29 +136,42 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
 - Requiere Python >= 3.10. Si el `python` del PATH es más antiguo, crear un venv local
   (`py -3.14 -m venv .venv`) y usar `.venv/Scripts/python`.
 - `pip install -r requirements.txt`
-- `python scripts/generate_patients.py` regenera los datos (determinista; no editar data/synthetic a mano).
+- `python scripts/generate_patients.py` regenera los datos (determinista; no editar simulador/datos a mano).
 - `python scripts/generate_patients.py --perfil realista --n 1500` regenera la cohorte realista en
-  data/realista (determinista; opciones `--mrc-sense-dx`, `--prevalenca-ic`, `--llavor`, `--sortida`).
-  NO subirla al servidor FHIR público.
-- `python -m pytest` ejecuta los tests.
+  simulador/datos/realista (determinista; opciones `--mrc-sense-dx`, `--prevalenca-ic`, `--llavor`,
+  `--sortida`). NO subirla al servidor FHIR público. Tras regenerar, reiniciar la estación (índice en memoria).
+- `python -m pytest` ejecuta los tests (182; `test_fhir_ehr.py` arranca el servidor FHIR del simulador con
+  Node y se salta esa prueba si no hay Node).
 - `python -m engine` resume el cupo priorizado; `python -m engine P003` imprime la nota clínica de un paciente;
   `python -m engine --excel` escribe `exports/cupo_evaluado.xlsx`; `--escala regicor` cambia la calculadora.
+  Por defecto lee los ficheros de la cohorte demo; con `--ehr [URL]` lee del servidor FHIR de la estación
+  (cupo activo; por defecto http://localhost:5174/fhir, con el simulador arrancado).
+- `node simulador/servidor-fhir.js --port 5174` arranca solo el servidor FHIR de la estación (sin interfaz).
 - `python -m engine --rules-excel` escribe la hoja de revisión clínica de las reglas (`exports/revision_reglas.xlsx`).
 - **Arrancar (scripts en la raíz; `.bat` en Windows, `.sh` en Linux/macOS/Git Bash). Instalan las dependencias
   si faltan; los `.bat` usan `npm.cmd`. Requieren Node.js >= 20 (y Python >= 3.10 el add-on):**
   - `start_addon` arranca SOLO el add-on: API en http://localhost:8000 (`/docs`, `/cds-services`) e interfaz en
-    http://localhost:5173. Imprime las URL en la consola. Usa `.venv` si existe.
-  - `start_simulador` arranca SOLO la estación clínica simulada: http://localhost:5174 (no necesita Python).
+    http://localhost:5173. Imprime las URL en la consola. Usa `.venv` si existe. Sin la estación arrancada no
+    tiene datos (la interfaz lo dice y ofrece reintentar).
+  - `start_simulador` arranca SOLO la estación clínica simulada: http://localhost:5174 (no necesita Python),
+    con su servidor FHIR en http://localhost:5174/fhir.
   - `start_demo` arranca los dos (en Windows, cada uno en su ventana, y abre la estación en el navegador;
     `DEMO_SIN_NAVEGADOR=1` para no abrirlo).
-  - **Guion de la demo:** estación sin add-on -> Configuración → Integraciones -> URL `http://localhost:8000` ->
-    Instalar (se ven los servicios del discovery) -> abrir P003 (tarjeta + informe de DIRAYA) -> botón
-    "CardioAlert AP" (ventana con la ficha de P003, lista "Hoy" y cupo) -> Desinstalar.
+  - **Guion de la demo:** estación con el cupo demo y sin add-on -> Configuración → Integraciones -> URL
+    `http://localhost:8000` -> Instalar (se ven los servicios del discovery) -> abrir P003 (tarjeta + informe
+    de DIRAYA; "Abrir la ficha en CardioAlert AP" abre su ficha) -> botón "CardioAlert AP" de la barra (página
+    principal: alertas, "Hoy" y prioridades) -> Configuración → Cupo / centro -> Cupo realista -> botón
+    "CardioAlert AP" (el add-on muestra el cupo de 1.500, ~2 s) -> Desinstalar.
 - A mano: `python -m uvicorn api.main:app --port 8000`; `cd frontend && npm install && npm run dev`;
   `cd simulador && npm install && npm run dev`. Puertos fijos (`strictPort`): 8000, 5173 y 5174.
   La interfaz del add-on llama a `/api/...` y Vite lo reenvía al puerto 8000 (`VITE_API_PROXY` para cambiarlo).
   `CARDIOALERT_UI_URL` (por defecto http://localhost:5173) es la URL de la interfaz que la API anuncia a la
-  estación; `SIMULADOR_DATOS` cambia la carpeta de bundles FHIR del simulador.
+  estación; `CARDIOALERT_FHIR_URL` (por defecto http://localhost:5174/fhir), la estación de la que lee la API
+  si la petición no trae `iss` / `fhirServer`; `CARDIOALERT_FHIR_PERMITIDOS`, expresión regular de los
+  servidores FHIR aceptados. `SIMULADOR_DATOS` cambia la carpeta de datos del simulador (con `demo/fhir` y
+  `realista/fhir`) y `SIMULADOR_CUPO` (demo | realista), el cupo activo al arrancar.
+  En Windows, "localhost" es primero ::1: Vite y el servidor FHIR escuchan ahí; un servidor que solo escuche
+  en 127.0.0.1 añade ~2 s a la primera conexión desde Python.
 - Servidor FHIR remoto (https://hapi.fhir.org/baseR4, público): `python scripts/upload_to_fhir.py` sube los
   100 pacientes sintéticos con `meta.tag` "the-goats-hackathon" (ya subidos el 14/11/2026; es un
   servidor de pruebas compartido y los datos pueden desaparecer: repetir si la web avisa de que no los encuentra).
@@ -160,9 +213,9 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   37,3% por edad; hombres 23,1%, mujeres 7,3%); 2/3 de las ERC sin diagnóstico. La ERC global sale 17,5% (no
   15,1%) porque se priorizan las tasas por edad con una pirámide actual. Resultado del motor: 406
   Bajo-moderado / 340 Alto / 246 Muy alto / 456 menores de 40 / 52 "Faltan datos"; grupos 28 / 224 / 331 / 917;
-  detecta 129 de 175 ERC sin diagnosticar. La API y la web eligen cohorte (`cohort=demo|realista`,
-  `GET /api/cohorts`, selector "Cohorte"); cada cupo se evalúa una vez y se guarda en memoria hasta que
-  cambia `rules.yaml` (por contenido). La realista se lee de CSV y solo en local.
+  detecta 129 de 175 ERC sin diagnosticar. Es un cupo de la estación: se activa en "Configuración → Cupo /
+  centro" y el add-on lo lee por Bulk Data (la web del add-on ya NO elige cohorte). `cohort=demo|realista` y
+  `GET /api/cohorts` quedan solo para `source=local` (tests). Nunca se sube al servidor FHIR público.
 - **Guía ESC 2021 (tabla 5, figuras 3 y 6; detalle en docs/decisions.md §11):** el único nivel de riesgo que
   se muestra es "Bajo-moderado" / "Alto" / "Muy alto" (`categoria_risc_cv`); NO existen ALT/MITJA/BAIX.
   Orden de la lista: 1) alertas urgentes (`possible_ic`, `possible_fra`, `derivacio_nefrologia`), 2) "Muy alto"
@@ -191,8 +244,9 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
 - **API y rules.yaml:** `POST /api/rules` solo acepta los parámetros de `api/rules_store.py::EDITABLES`,
   valida rangos y coherencia, prueba el motor con la config nueva y guarda copia en `config/backups/`
   (no versionada) antes de escribir. La API compara `rules.yaml` en cada petición y solo recalcula si cambia.
-- **CDS Hooks:** `GET /cds-services` (discovery) y `POST /cds-services/cardioalert-patient-view` (hook
-  `patient-view`, cuerpo con `context.patientId`). Devuelve una tarjeta por paciente: `summary` (< 140
+- **CDS Hooks:** `GET /cds-services` (discovery, con `prefetch`) y `POST /cds-services/cardioalert-patient-view`
+  (hook `patient-view`, cuerpo con `context.patientId` y `fhirServer`; los datos se leen de la estación, ver
+  "Flujo de datos"). Devuelve una tarjeta por paciente: `summary` (< 140
   caracteres), `indicator` (según `grup_ordre`: 1 = critical, 2 y 3 = warning, 4 = info), `detail` (Markdown: motivo y
   origen del dato) y `suggestions` (acciones del motor, sin `actions`: no escribe en la historia). Siempre
   hay tarjeta, también sin alertas (info). `source` y `scale` en la URL son una extensión propia. El motor
@@ -204,22 +258,23 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   Con add-on: panel "Apoyo a la decisión" (hook `patient-view` al abrir un paciente) y botón "CardioAlert AP"
   en la barra de herramientas, que abre la interfaz del add-on en una ventana modal (iframe) con
   `?iss=<FHIR de la estación>&launch=<contexto>`. **Lanzamiento SMART on FHIR SIMULADO, sin OAuth:** `launch`
-  es un JSON en base64url con `patient`, `fhirUser`, `practitioner` y `ehr`; `frontend/src/launch.js` lo lee y
-  abre la ficha de ese paciente, con una franja de contexto y acceso a "Hoy" y al cupo. Si el add-on o su
-  interfaz no responden: aviso en la estación, en el panel y en la ventana; la historia sigue funcionando.
-- **Estación clínica simulada** (`simulador/`, rutas `#/`, `#/paciente/P003` y
-  `#/configuracion/integraciones`): historia clínica GENÉRICA de atención primaria (sin nombre, logos ni
-  diseño de ningún producto real), con la etiqueta visible "Simulación – datos sintéticos" y un profesional
-  simulado (Dra. Carmen Soler). Lee su propio servidor FHIR (`/fhir/Patient`, `/fhir/Patient/{id}/$everything`).
-  Los informes de una comunidad distinta de la habitual del paciente (la de la mayoría de sus analíticas)
-  llevan "Informe recuperado de otra comunidad" (p. ej. el de DIRAYA de P003), con o sin add-on.
-- **Pendiente / límites de la separación:** el generador y los datos sintéticos siguen en `scripts/` y `data/`
-  (moverlos a `simulador/` rompería rutas del motor, la API, los tests y la subida al FHIR remoto). El add-on
-  y el simulador leen la MISMA carpeta `data/synthetic/fhir`: el add-on todavía no lee del servidor FHIR de la
-  estación (`fhirServer` / `iss` se envían pero no se usan). El simulador solo muestra la cohorte demo (100).
-- **Fuente remota:** la API descarga el servidor FHIR una sola vez y lo guarda en memoria; si falla, tarda
-  más de 60 s o no tiene nuestros pacientes, vuelve a los datos locales con un aviso visible en la web y no
-  reintenta hasta pasados 60 s.
+  es un JSON en base64url con `patient`, `intent`, `fhirUser`, `practitioner` y `ehr`; `frontend/src/launch.js`
+  lo lee: con `intent: "ficha-paciente"` (enlace de la tarjeta) abre la ficha de ese paciente y, si no (botón
+  de la barra), la página principal; siempre con una franja de contexto y acceso a la ficha, a "Hoy" y al
+  cupo. Si el add-on o su interfaz no responden: aviso en la estación, en el panel y en la ventana; la
+  historia sigue funcionando.
+- **Estación clínica simulada** (`simulador/`, rutas `#/`, `#/paciente/P003` y `#/configuracion`): historia
+  clínica GENÉRICA de atención primaria (sin nombre, logos ni diseño de ningún producto real), con la
+  etiqueta visible "Simulación – datos sintéticos" y un profesional simulado (Dra. Carmen Soler). Lee su
+  propio servidor FHIR (`/fhir/Patient`, `/fhir/Patient/{id}/$everything`) y muestra los pacientes del cupo
+  activo. Los informes de una comunidad distinta de la habitual del paciente (la de la mayoría de sus
+  analíticas) llevan "Informe recuperado de otra comunidad" (p. ej. el de DIRAYA de P003), con o sin add-on.
+- **Límites actuales:** sin OAuth ni `fhirAuthorization` (simulación); la estación no resuelve el prefetch
+  (envía `fhirServer`); el cupo se exporta entero (sin `_since`); el generador sigue en `scripts/` (escribe
+  en `simulador/datos`); el servidor FHIR del simulador guarda el índice en memoria.
+- **Fuente remota (`source=remote`, HAPI; ya no está en la web):** la API descarga el servidor FHIR una sola
+  vez y lo guarda en memoria; si falla, tarda más de 60 s o no tiene nuestros pacientes, vuelve a los
+  ficheros locales con un aviso y no reintenta hasta pasados 60 s.
 - **Gráfica de la ficha:** dos paneles con el mismo eje de tiempo (FGe y UACR), nunca dos escalas en un
   mismo panel; el color y la forma de cada punto indican el sistema de origen.
 - **FGe:** el motor usa **CKD-EPI 2009 sin factor racial** (configurable en `motor.equacio_fge`). El FGe
@@ -230,6 +285,8 @@ exports/      cupo_evaluado.xlsx generado con `python -m engine --excel` (no ver
   Fernández (P003) viene de "DIRAYA - Andalucía" y es la que permite confirmar su albuminuria.
 - **Reglas en YAML:** umbrales en config/rules.yaml, nunca hardcodeados en el motor.
 - **Conectores:** el motor solo conoce la interfaz `Connector`; añadir una fuente = añadir un conector.
+  NO cambiar fórmulas, umbrales, reglas ni resultados del motor: leyendo de la estación, los resultados de las
+  dos cohortes y las tres escalas son idénticos byte a byte a los de los ficheros (lo comprueban los tests).
 - **Convenciones:** identificadores y docs en catalán; textos clínicos de los datos en castellano.
   Códigos: LOINC (pruebas), CIAP-2 + CIE-10 (diagnósticos), ATC (fármacos, agrupados por prefijo).
 - **Git:** commit y push a main tras cada paso que funcione.

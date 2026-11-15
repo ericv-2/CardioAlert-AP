@@ -10,7 +10,7 @@ from connectors import Connector, CsvConnector, FhirConnector
 from model import DadesPacient
 from model.cataleg import CIAP2, LOINC
 
-DADES = Path(__file__).resolve().parent.parent / "data" / "synthetic"
+DADES = Path(__file__).resolve().parent.parent / "simulador" / "datos" / "demo"
 AVUI = date(2026, 11, 13)  # data de referència de les dades sintètiques
 
 
