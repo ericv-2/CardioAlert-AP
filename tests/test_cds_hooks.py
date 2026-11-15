@@ -33,6 +33,24 @@ def test_discovery(client):
     assert s["title"] and s["description"]  # camps obligatoris de l'especificació
 
 
+def test_discovery_anuncia_la_interficie_de_l_addon(monkeypatch):
+    """L'estació clínica només coneix la URL de l'API: la de la interfície la llegeix del discovery."""
+    app = lambda **kw: TestClient(create_app(**kw)).get("/cds-services").json()["services"][0]
+    ext = app()["extension"]["cardioalert-app"]
+    assert ext["launchUrl"] == "http://localhost:5173" and ext["title"] == "CardioAlert AP"
+    assert app(url_interficie="http://addon.example:9000/")["extension"]["cardioalert-app"]["launchUrl"] == "http://addon.example:9000"
+    monkeypatch.setenv("CARDIOALERT_UI_URL", "http://localhost:6001")
+    assert app()["extension"]["cardioalert-app"]["launchUrl"] == "http://localhost:6001"
+    assert "extension" not in app(url_interficie="")  # sense interfície, el servei CDS funciona igual
+
+
+def test_targeta_amb_enllac_smart_a_la_interficie():
+    card = lambda **kw: TestClient(create_app(**kw)).post(URL, json=peticio("P003")).json()["cards"][0]
+    assert card(url_interficie="http://localhost:5173")["links"] == [
+        {"label": "Abrir la ficha en CardioAlert AP", "url": "http://localhost:5173", "type": "smart"}]
+    assert "links" not in card(url_interficie="")
+
+
 def test_targeta_del_pacient_amb_dada_creuada(client):
     r = client.post(URL, json=peticio("P003"))
     assert r.status_code == 200, r.text

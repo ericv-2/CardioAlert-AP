@@ -8,17 +8,21 @@ Endpoints (tots accepten `cohort=demo|realista`, `source=local|remote` i `scale=
     GET  /api/pacientes/{id}                                  fitxa: resultat, històric amb origen i sèries renals
     GET  /api/export/excel                                    descàrrega del cupo complet en .xlsx
     GET  /api/rules, POST /api/rules                          consulta i ajust dels llindars de rules.yaml
-    GET  /cds-services                                        CDS Hooks: discovery
+    GET  /cds-services                                        CDS Hooks: discovery (anuncia també la interfície)
     POST /cds-services/cardioalert-patient-view               CDS Hooks: targeta del hook patient-view
 
 L'API no té lògica clínica: tot surt del motor (`engine/`) i de `config/rules.yaml`. Cada cupo s'avalua UN
 sol cop i es guarda en memòria (resultats i JSON ja serialitzat); només es torna a calcular si canvia
 `rules.yaml` (es compara el contingut a cada petició), la cohort, la font o l'escala.
+
+Aquesta API és l'ADD-ON: no depèn de cap estació clínica. La interfície (frontend/) corre al seu propi port;
+la seva URL s'anuncia al discovery (variable d'entorn CARDIOALERT_UI_URL, per defecte http://localhost:5173).
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 import time
 from collections import Counter
@@ -49,6 +53,7 @@ ETIQUETA_FONT = {"local": "Local (eCAP / DIRAYA Demo)", "remote": "Servidor FHIR
 ETIQUETA_COHORT = {"demo": "Demo", "realista": "Cupo realista"}
 SEGONS_ENTRE_REINTENTS = 60  # després d'una fallada del servidor remot no s'hi torna fins passat aquest temps
 ORDRE_GENERAR = "python scripts/generate_patients.py --perfil realista --n 1500"
+URL_INTERFICIE = "http://localhost:5173"  # on corre la interfície de l'add-on si no es diu res més
 
 
 def _kpis(cupo: list[ResultatPacient]) -> dict:
@@ -81,10 +86,15 @@ class Avaluacio:
 
 def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path = DADES_LOCALS,
                remote_factory: Callable[[], Connector] | None = None, remot_public: bool = False,
-               dades_realista: str | Path = DADES_REALISTA) -> FastAPI:
+               dades_realista: str | Path = DADES_REALISTA, url_interficie: str | None = None) -> FastAPI:
     """remote_factory: funció que retorna el connector remot (pot fallar o trigar: llavors es fa servir
     el local i la resposta porta un avís). remot_public=True: si no es passa cap factory, es fa servir el
-    servidor públic de HAPI (FhirRemoteConnector). dades_realista: carpeta CSV de la cohort realista."""
+    servidor públic de HAPI (FhirRemoteConnector). dades_realista: carpeta CSV de la cohort realista.
+    url_interficie: URL de la interfície de l'add-on que s'anuncia al discovery de CDS Hooks i a l'enllaç
+    de la targeta (per defecte, CARDIOALERT_UI_URL o http://localhost:5173; cadena buida = no s'anuncia)."""
+    if url_interficie is None:
+        url_interficie = os.environ.get("CARDIOALERT_UI_URL", URL_INTERFICIE)
+    url_interficie = url_interficie.strip().rstrip("/")
     app = FastAPI(title="CardioAlert AP", version="1.1",
                   description="Cribado cardiorrenal-metabólico pasivo para Atención Primaria (datos sintéticos).")
     app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
@@ -258,8 +268,8 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
 
     @app.get("/cds-services")
     def cds_discovery() -> dict:
-        """CDS Hooks: serveis disponibles."""
-        return {"services": [cds_hooks.SERVEI]}
+        """CDS Hooks: serveis disponibles. `extension` anuncia la interfície de l'add-on (extensió pròpia)."""
+        return {"services": [cds_hooks.servei(url_interficie)]}
 
     @app.post(f"/cds-services/{cds_hooks.SERVEI_ID}")
     def cds_patient_view(peticio: dict = Body(..., examples=[{
@@ -274,7 +284,7 @@ def create_app(rules_path: str | Path = CONFIG_DEFECTE, dades_locals: str | Path
         if pacient_id is None:
             raise HTTPException(400, "Falta context.patientId")
         av, _ = avaluacio(source, scale, cohort)
-        return {"cards": [cds_hooks.targeta(resultat(av, pacient_id), av.motor.motor["guia"])]}
+        return {"cards": [cds_hooks.targeta(resultat(av, pacient_id), av.motor.motor["guia"], url_interficie)]}
 
     return app
 
