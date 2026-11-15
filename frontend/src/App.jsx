@@ -1,21 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download } from "lucide-react";
 import { api } from "./api.js";
+import { lanzamiento } from "./launch.js"; // antes de leer la ruta: puede abrir la ficha del paciente en contexto
 import Header from "./components/Header.jsx";
 import CupoView from "./components/CupoView.jsx";
-import EstacionView from "./components/EstacionView.jsx";
 import PatientView from "./components/PatientView.jsx";
 import RulesView from "./components/RulesView.jsx";
 
-const NAV = [
-  { href: "#/estacion", view: "estacion", label: "Estación clínica simulada" },
-  { href: "#/parametros", view: "parametros", label: "Parámetros del protocolo" },
-];
+const NAV = [{ href: "#/parametros", view: "parametros", label: "Parámetros del protocolo" }];
 
 function parseHash() {
   const [seg, id] = window.location.hash.replace(/^#\/?/, "").split("/");
   if (seg === "paciente" && id) return { view: "paciente", id: decodeURIComponent(id) };
-  if (seg === "estacion") return { view: "estacion", id: id ? decodeURIComponent(id) : null };
   if (seg === "parametros") return { view: "parametros" };
   return { view: "cupo" };
 }
@@ -58,7 +54,6 @@ export default function App() {
     setCupo({ data: null, loading: true, error: null });
     const { view } = parseHash();
     if (view === "paciente") window.location.hash = "#/";
-    if (view === "estacion") window.location.hash = "#/estacion";
   }, []);
 
   useEffect(() => {
@@ -86,6 +81,7 @@ export default function App() {
         meta={cupo.data?.meta}
         loading={cupo.loading}
         nav={NAV}
+        lanzamiento={lanzamiento}
         extra={
           <a
             href={api.excelUrl(sel)}
@@ -110,8 +106,7 @@ export default function App() {
           />
         )}
         {route.view === "parametros" && <RulesView kpis={cupo.data?.kpis} recalculando={cupo.loading} onSaved={recalcular} />}
-        {route.view === "estacion" && <EstacionView id={route.id} cupo={cupo} sel={sel} />}
-        {route.view === "paciente" &&<PatientView id={route.id} sel={sel} version={version} fuentes={cupo.data?.kpis.fonts} />}
+        {route.view === "paciente" && <PatientView id={route.id} sel={sel} version={version} fuentes={cupo.data?.kpis.fonts} />}
       </main>
     </div>
   );

@@ -12,7 +12,7 @@ async function request(input, init) {
     res = await fetch(input, init);
   } catch (e) {
     if (e.name === "AbortError") throw e;
-    throw new Error("No se puede conectar con la API. ¿Está arrancada? (uvicorn api.main:app --port 8000)");
+    throw new Error("No se puede conectar con la API de CardioAlert AP. ¿Está arrancada? (start_addon, o uvicorn api.main:app --port 8000)");
   }
   const body = await res.json().catch(() => null);
   if (!res.ok) {
@@ -37,14 +37,6 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ canvis }),
-    }),
-  // CDS Hooks: hook patient-view (source y cohort son una extensión propia del servicio)
-  cdsPatientView: (peticion, { source, cohort }, signal) =>
-    request(url("/cds-services/cardioalert-patient-view", { source, cohort }), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(peticion),
-      signal,
     }),
   excelUrl: ({ source, cohort }) => url("/api/export/excel", { source, cohort }),
 };
