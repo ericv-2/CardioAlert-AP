@@ -1,4 +1,4 @@
-// Servidor FHIR R4 de la estación clínica simulada (solo lectura, sin dependencias: solo Node).
+// Servidor FHIR R4 de la estación clínica simulada (sin dependencias: solo Node).
 //
 // Los datos de los pacientes son de la ESTACIÓN (carpeta simulador/datos, un Bundle JSON por paciente). El
 // add-on no tiene datos propios: los lee de aquí, igual que leería los de una estación clínica real.
@@ -12,6 +12,16 @@
 //   GET /fhir/Group/{id}/$export                FHIR Bulk Data simplificado: 202 + Content-Location
 //   GET /fhir/$export-status/{trabajo}          manifiesto de la exportación (un fichero NDJSON por tipo)
 //   GET /fhir/$export-file/{trabajo}/{Tipo}.ndjson
+//   POST /fhir/Observation                      registra una analítica (fecha = "hoy" de la simulación)
+//   POST /fhir/Patient                          da de alta un paciente en el cupo activo
+//   POST /fhir/Subscription                     suscripción (R4 Backport IG, rest-hook, id-only)
+//   GET  /fhir/Subscription[/{id}], DELETE /fhir/Subscription/{id}
+//
+// Escritura: lo que se registra vive EN MEMORIA (los ficheros de datos/ no se tocan: los genera el script y
+// son deterministas). Cada escritura cambia la versión del recurso (meta.versionId) y la del Group del cupo.
+// Notificaciones: al registrar una Observation de un paciente del cupo, la estación envía a cada Subscription
+// activa un Bundle "history" con el SubscriptionStatus (event-notification), el `focus` (la Observation con su
+// versión) y, como `additional-context`, el Patient y la versión nueva del Group.
 //
 // Bulk Data "simplificado": el flujo es el del estándar (arranque asíncrono, estado, manifiesto, NDJSON), pero
 // la exportación termina al instante, no hay OAuth y no se puede cancelar.
@@ -33,6 +43,11 @@ export const ESTACION = "Estación clínica simulada";
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 export const DATOS_POR_DEFECTO = path.join(AQUI, "datos");
 const TIPOS = ["Patient", "Observation", "Condition", "MedicationStatement"];
+// Tema de suscripción que ofrece la estación (R4 Backport IG: el tema va en Subscription.criteria)
+export const TEMA_OBSERVACION = "http://estacion-simulada.local/SubscriptionTopic/observacion-nueva-cupo";
+const PERFIL_ESTADO = "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-subscription-status-r4";
+const PERFIL_SUSCRIPCION = "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-subscription";
+const ahora = () => new Date().toISOString();
 
 // Cupos de la estación: cada uno es una carpeta de datos/ con los bundles en fhir/.
 export const CUPOS = [
@@ -91,16 +106,18 @@ export function crearEstacion({ datos = DATOS_POR_DEFECTO, cupoInicial = "demo" 
       const recursos = (bundle.entry ?? []).map((e) => e.resource).filter(Boolean);
       const paciente = recursos.find((r) => r.resourceType === "Patient");
       if (!paciente) continue;
-      pacientes.set(paciente.id, { fichero, paciente });
+      pacientes.set(paciente.id, { fichero, paciente, nuevos: [] });
       for (const r of recursos) lineas[r.resourceType]?.push(JSON.stringify(r));
       if (bundle.timestamp && (!fecha || bundle.timestamp > fecha)) fecha = bundle.timestamp;
     }
     const indice = {
       cupo,
       grupoId: `cupo-${cupo.id}`,
-      pacientes,
+      pacientes, // id -> { fichero (null si se dio de alta aquí), paciente, nuevos: recursos registrados aquí }
       fecha, // la "fecha de hoy" de la simulación: la de extracción de los datos
-      version: huella.digest("hex").slice(0, 12), // cambia si cambian los datos
+      version: huella.digest("hex").slice(0, 12), // cambia si cambian los datos (ficheros o escrituras)
+      escrituras: 0,
+      ultimaEscritura: null,
       ndjson: Object.fromEntries(TIPOS.map((t) => [t, { cuenta: lineas[t].length, datos: Buffer.from(lineas[t].map((l) => `${l}\n`).join(""), "utf-8") }])),
     };
     indices.set(id, indice);
@@ -109,11 +126,169 @@ export function crearEstacion({ datos = DATOS_POR_DEFECTO, cupoInicial = "demo" 
 
   const cargarActivo = () => cargar(activo);
 
+  // --- Escritura (en memoria) -----------------------------------------------------------------
+
+  // Una escritura cambia la versión de los datos (y la del Group) y añade el recurso a la exportación.
+  function anotar(indice, recurso) {
+    indice.escrituras += 1;
+    indice.ultimaEscritura = recurso.meta.lastUpdated;
+    indice.version = crypto.createHash("sha1").update(`${indice.version}|${JSON.stringify(recurso)}`).digest("hex").slice(0, 12);
+    const f = indice.ndjson[recurso.resourceType];
+    f.datos = Buffer.concat([f.datos, Buffer.from(`${JSON.stringify(recurso)}\n`, "utf-8")]);
+    f.cuenta += 1;
+  }
+
+  const hoyDe = (indice) => indice.fecha?.slice(0, 10) ?? ahora().slice(0, 10);
+
+  function crearObservation(indice, cuerpo, base) {
+    if (cuerpo?.resourceType !== "Observation") throw new ErrorHttp(400, "Se esperaba un recurso Observation");
+    const pid = String(cuerpo.subject?.reference ?? "").replace(/^Patient\//, "");
+    const ficha = indice.pacientes.get(pid);
+    if (!ficha) throw new ErrorHttp(422, `subject: el paciente ${pid || "(vacío)"} no está en el ${indice.cupo.nombre.toLowerCase()}`);
+    if (!cuerpo.code?.coding?.some((c) => c.system === "http://loinc.org" && c.code)) throw new ErrorHttp(422, "code: falta el código LOINC de la prueba");
+    const valor = Number(cuerpo.valueQuantity?.value);
+    if (cuerpo.valueQuantity?.value == null || !Number.isFinite(valor) || valor < 0) throw new ErrorHttp(422, "valueQuantity.value: debe ser un número positivo");
+    const n = ficha.nuevos.filter((r) => r.resourceType === "Observation").length + 1;
+    const recurso = {
+      ...cuerpo,
+      id: `${pid}-obs-reg${String(n).padStart(3, "0")}`,
+      meta: { versionId: "1", lastUpdated: ahora() },
+      status: cuerpo.status ?? "final",
+      subject: { reference: `Patient/${pid}` },
+      // La analítica es de "hoy" en la simulación (la fecha de los datos, que es la de referencia del motor)
+      effectiveDateTime: hoyDe(indice),
+      valueQuantity: { ...cuerpo.valueQuantity, value: valor },
+    };
+    ficha.nuevos.push(recurso);
+    anotar(indice, recurso);
+    notificar(indice, recurso, base);
+    return recurso;
+  }
+
+  function crearPatient(indice, cuerpo) {
+    if (cuerpo?.resourceType !== "Patient") throw new ErrorHttp(400, "Se esperaba un recurso Patient");
+    const nombre = cuerpo.name?.[0] ?? {};
+    const given = (nombre.given ?? []).map((g) => String(g).trim()).filter(Boolean);
+    const family = String(nombre.family ?? "").trim();
+    if (!given.length || !family) throw new ErrorHttp(422, "name: faltan el nombre o los apellidos");
+    if (!["male", "female"].includes(cuerpo.gender)) throw new ErrorHttp(422, "gender: debe ser male o female");
+    const nacimiento = String(cuerpo.birthDate ?? "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nacimiento) || Number.isNaN(Date.parse(nacimiento)) || nacimiento >= hoyDe(indice))
+      throw new ErrorHttp(422, "birthDate: fecha de nacimiento no válida (AAAA-MM-DD, anterior a hoy)");
+    const [prefijo, cifras] = indice.cupo.id === "realista" ? ["R", 4] : ["P", 3];
+    const maximo = Math.max(0, ...[...indice.pacientes.keys()].filter((id) => id.startsWith(prefijo)).map((id) => Number(id.slice(1)) || 0));
+    const id = `${prefijo}${String(maximo + 1).padStart(cifras, "0")}`;
+    const recurso = {
+      resourceType: "Patient",
+      id,
+      meta: { versionId: "1", lastUpdated: ahora() },
+      name: [{ use: "official", text: `${given.join(" ")} ${family}`, given, family }],
+      gender: cuerpo.gender,
+      birthDate: nacimiento,
+    };
+    indice.pacientes.set(id, { fichero: null, paciente: recurso, nuevos: [] });
+    anotar(indice, recurso);
+    return recurso;
+  }
+
+  // Historia de un paciente: su fichero tal cual o, si se ha escrito algo aquí, con los recursos nuevos.
+  function historia(indice, ficha) {
+    if (ficha.fichero && !ficha.nuevos.length) return fs.readFileSync(ficha.fichero, "utf-8");
+    const bundle = ficha.fichero
+      ? JSON.parse(fs.readFileSync(ficha.fichero, "utf-8"))
+      : { resourceType: "Bundle", id: `bundle-${ficha.paciente.id}`, type: "collection", timestamp: indice.fecha, entry: [{ fullUrl: `urn:cardioalert:Patient/${ficha.paciente.id}`, resource: ficha.paciente }] };
+    bundle.entry = [...(bundle.entry ?? []), ...ficha.nuevos.map((r) => ({ fullUrl: `urn:cardioalert:${r.resourceType}/${r.id}`, resource: r }))];
+    return JSON.stringify(bundle);
+  }
+
+  // --- Suscripciones (R4 Backport IG simplificado: rest-hook, contenido id-only, sin handshake) ---
+
+  const suscripciones = new Map(); // id -> { recurso, eventos, ultima }
+
+  function crearSuscripcion(cuerpo) {
+    if (cuerpo?.resourceType !== "Subscription") throw new ErrorHttp(400, "Se esperaba un recurso Subscription");
+    if (cuerpo.criteria !== TEMA_OBSERVACION) throw new ErrorHttp(422, `criteria: la estación solo ofrece el tema ${TEMA_OBSERVACION}`);
+    if (cuerpo.channel?.type !== "rest-hook") throw new ErrorHttp(422, "channel.type: solo se admite rest-hook");
+    let destino;
+    try {
+      destino = new URL(cuerpo.channel.endpoint);
+    } catch {
+      throw new ErrorHttp(422, "channel.endpoint: URL no válida");
+    }
+    if (!/^https?:$/.test(destino.protocol)) throw new ErrorHttp(422, "channel.endpoint: debe ser http o https");
+    const id = crypto.randomUUID();
+    const recurso = { ...cuerpo, id, meta: { versionId: "1", lastUpdated: ahora(), profile: [PERFIL_SUSCRIPCION] }, status: "active" };
+    suscripciones.set(id, { recurso, eventos: 0, ultima: null });
+    return recurso;
+  }
+
+  const verSuscripcion = (s) =>
+    s.ultima ? { ...s.recurso, extension: [{ url: "http://estacion-simulada.local/ultima-notificacion", valueString: JSON.stringify(s.ultima) }] } : s.recurso;
+
+  // Notifica una Observation nueva a cada suscripción activa. No espera la respuesta: la estación sigue.
+  function notificar(indice, obs, base) {
+    const pid = obs.subject.reference.split("/")[1];
+    for (const s of suscripciones.values()) {
+      if (s.recurso.status !== "active") continue;
+      s.eventos += 1;
+      const n = String(s.eventos);
+      const momento = ahora();
+      const bundle = {
+        resourceType: "Bundle",
+        id: crypto.randomUUID(),
+        type: "history",
+        timestamp: momento,
+        entry: [
+          {
+            fullUrl: `urn:uuid:${crypto.randomUUID()}`,
+            resource: {
+              resourceType: "Parameters",
+              meta: { profile: [PERFIL_ESTADO] },
+              parameter: [
+                { name: "subscription", valueReference: { reference: `${base}/Subscription/${s.recurso.id}` } },
+                { name: "topic", valueCanonical: TEMA_OBSERVACION },
+                { name: "status", valueCode: "active" },
+                { name: "type", valueCode: "event-notification" },
+                { name: "events-since-subscription-start", valueString: n },
+                {
+                  name: "notification-event",
+                  part: [
+                    { name: "event-number", valueString: n },
+                    { name: "timestamp", valueInstant: momento },
+                    { name: "focus", valueReference: { reference: `${base}/Observation/${obs.id}/_history/${obs.meta.versionId}` } },
+                    { name: "additional-context", valueReference: { reference: `${base}/Patient/${pid}` } },
+                    { name: "additional-context", valueReference: { reference: `${base}/Group/${indice.grupoId}/_history/${indice.version}` } },
+                  ],
+                },
+              ],
+            },
+            request: { method: "GET", url: `${base}/Subscription/${s.recurso.id}/$status` },
+            response: { status: "200" },
+          },
+          { fullUrl: `${base}/Observation/${obs.id}`, request: { method: "POST", url: "Observation" }, response: { status: "201" } },
+        ],
+      };
+      const cabeceras = { "Content-Type": "application/fhir+json" };
+      for (const h of s.recurso.channel.header ?? []) {
+        const i = String(h).indexOf(":");
+        if (i > 0) cabeceras[h.slice(0, i).trim()] = h.slice(i + 1).trim();
+      }
+      fetch(s.recurso.channel.endpoint, { method: "POST", headers: cabeceras, body: JSON.stringify(bundle), signal: AbortSignal.timeout(10_000) })
+        .then((r) => {
+          s.ultima = { evento: n, estado: r.status, cuando: ahora() };
+        })
+        .catch((e) => {
+          s.ultima = { evento: n, error: e.message, cuando: ahora() };
+          console.warn(`No se ha podido notificar la suscripción ${s.recurso.id} (${s.recurso.channel.endpoint}): ${e.message}`);
+        });
+    }
+  }
+
   function grupo(indice, conMiembros) {
     const g = {
       resourceType: "Group",
       id: indice.grupoId,
-      meta: { versionId: indice.version, lastUpdated: indice.fecha },
+      meta: { versionId: indice.version, lastUpdated: indice.ultimaEscritura ?? indice.fecha },
       type: "person",
       actual: true,
       active: true,
@@ -140,7 +315,7 @@ export function crearEstacion({ datos = DATOS_POR_DEFECTO, cupoInicial = "demo" 
     res.end(cuerpo == null ? "" : typeof cuerpo === "string" || Buffer.isBuffer(cuerpo) ? cuerpo : JSON.stringify(cuerpo));
   }
 
-  const CODIGO = { 400: "invalid", 404: "not-found", 405: "not-supported", 503: "transient" };
+  const CODIGO = { 400: "invalid", 404: "not-found", 405: "not-supported", 422: "processing", 503: "transient" };
   const error = (res, estado, texto) =>
     responder(res, estado, { resourceType: "OperationOutcome", issue: [{ severity: "error", code: CODIGO[estado] ?? "exception", diagnostics: texto }] });
 
@@ -152,16 +327,16 @@ export function crearEstacion({ datos = DATOS_POR_DEFECTO, cupoInicial = "demo" 
       fhirVersion: "4.0.1",
       format: ["json", "ndjson"],
       software: { name: ESTACION, version: "1.1" },
-      implementation: { description: `${ESTACION} (datos sintéticos, solo lectura)`, url: base },
+      implementation: { description: `${ESTACION} (datos sintéticos)`, url: base },
       instantiates: ["http://hl7.org/fhir/uv/bulkdata/CapabilityStatement/bulk-data"],
       rest: [
         {
           mode: "server",
-          documentation: "Solo lectura y sin autenticación: es una simulación con datos sintéticos.",
+          documentation: "Sin autenticación: es una simulación con datos sintéticos. Lo que se escribe vive en memoria.",
           resource: [
             {
               type: "Patient",
-              interaction: [{ code: "read" }, { code: "search-type" }],
+              interaction: [{ code: "read" }, { code: "search-type" }, { code: "create" }],
               searchParam: [
                 { name: "_id", type: "token" },
                 { name: "identifier", type: "token" },
@@ -174,6 +349,8 @@ export function crearEstacion({ datos = DATOS_POR_DEFECTO, cupoInicial = "demo" 
               interaction: [{ code: "read" }, { code: "search-type" }],
               operation: [{ name: "export", definition: "http://hl7.org/fhir/uv/bulkdata/OperationDefinition/group-export" }],
             },
+            { type: "Observation", interaction: [{ code: "create" }] },
+            { type: "Subscription", interaction: [{ code: "create" }, { code: "read" }, { code: "search-type" }, { code: "delete" }] },
           ],
         },
       ],
@@ -218,9 +395,19 @@ export function crearEstacion({ datos = DATOS_POR_DEFECTO, cupoInicial = "demo" 
     const url = new URL(req.url, "http://localhost");
     const ruta = decodeURIComponent(url.pathname).replace(/\/+$/, "");
     const base = `http://${req.headers.host ?? "localhost"}${prefijo}`;
-    if (req.method !== "GET") return error(res, 405, "Servidor de solo lectura");
+    if (req.method === "POST" || req.method === "DELETE") return escribir(req, res, ruta, base);
+    if (req.method !== "GET") return error(res, 405, `Método ${req.method} no soportado`);
     try {
       if (ruta === "/metadata") return responder(res, 200, capacidades(base));
+      if (ruta === "/Subscription") {
+        const lista = [...suscripciones.values()];
+        return responder(res, 200, { resourceType: "Bundle", type: "searchset", total: lista.length, entry: lista.map((s) => ({ fullUrl: `${base}/Subscription/${s.recurso.id}`, resource: verSuscripcion(s) })) });
+      }
+      const sus = ruta.match(/^\/Subscription\/([^/]+)$/);
+      if (sus) {
+        if (!suscripciones.has(sus[1])) return error(res, 404, `La suscripción ${sus[1]} no existe`);
+        return responder(res, 200, verSuscripcion(suscripciones.get(sus[1])));
+      }
 
       let m = ruta.match(/^\/\$export-status\/([^/]+)$/);
       if (m) {
@@ -256,7 +443,7 @@ export function crearEstacion({ datos = DATOS_POR_DEFECTO, cupoInicial = "demo" 
       if (m) {
         const ficha = indice.pacientes.get(m[1]);
         if (!ficha) return error(res, 404, `Paciente ${m[1]} no encontrado en el ${indice.cupo.nombre.toLowerCase()}`);
-        return responder(res, 200, m[2] ? fs.readFileSync(ficha.fichero, "utf-8") : ficha.paciente);
+        return responder(res, 200, m[2] ? historia(indice, ficha) : ficha.paciente);
       }
       if (ruta === "/Group") {
         return responder(res, 200, {
@@ -278,6 +465,34 @@ export function crearEstacion({ datos = DATOS_POR_DEFECTO, cupoInicial = "demo" 
         return responder(res, 202, null, "application/fhir+json; charset=utf-8", { "Content-Location": estado });
       }
       return error(res, 404, `Ruta no soportada: ${ruta}`);
+    } catch (e) {
+      return error(res, e.estado ?? 500, e.message);
+    }
+  }
+
+  async function escribir(req, res, ruta, base) {
+    try {
+      if (req.method === "DELETE") {
+        const m = ruta.match(/^\/Subscription\/([^/]+)$/);
+        if (!m) throw new ErrorHttp(405, "Solo se pueden borrar suscripciones");
+        if (!suscripciones.delete(m[1])) throw new ErrorHttp(404, `La suscripción ${m[1]} no existe`);
+        return responder(res, 204, null);
+      }
+      const cuerpo = await leerCuerpo(req);
+      if (ruta === "/Subscription") {
+        const r = crearSuscripcion(cuerpo);
+        return responder(res, 201, r, undefined, { Location: `${base}/Subscription/${r.id}` });
+      }
+      const indice = cargarActivo();
+      if (ruta === "/Observation") {
+        const r = crearObservation(indice, cuerpo, base);
+        return responder(res, 201, r, undefined, { Location: `${base}/Observation/${r.id}/_history/1` });
+      }
+      if (ruta === "/Patient") {
+        const r = crearPatient(indice, cuerpo);
+        return responder(res, 201, r, undefined, { Location: `${base}/Patient/${r.id}/_history/1` });
+      }
+      throw new ErrorHttp(405, `No se puede escribir en ${ruta}`);
     } catch (e) {
       return error(res, e.estado ?? 500, e.message);
     }
