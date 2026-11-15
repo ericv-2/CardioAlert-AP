@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, CalendarDays, HeartPulse, PlugZap, Settings, Stethoscope, Unplug, UserRound, X } from "lucide-react";
-import { cargarAgenda } from "./historia.js";
+import { ArrowRight, Building2, CalendarDays, HeartPulse, PlugZap, Settings, Stethoscope, Unplug, UserRound, X } from "lucide-react";
+import { cargarAgenda, cargarCupos } from "./historia.js";
 import { descubrir, desinstalar, leerInstalacion, nombreAddon, PROFESIONAL } from "./integracion.js";
-import { fecha } from "./format.js";
+import { fecha, num } from "./format.js";
 import Agenda from "./components/Agenda.jsx";
+import CupoCentro from "./components/CupoCentro.jsx";
 import Historia from "./components/Historia.jsx";
 import Integraciones from "./components/Integraciones.jsx";
 import ModalAddon from "./components/ModalAddon.jsx";
@@ -12,11 +13,12 @@ import PanelCds from "./components/PanelCds.jsx";
 // Estación clínica SIMULADA: historia clínica genérica de atención primaria de una comunidad.
 // No reproduce ningún producto real. Por defecto NO tiene ningún add-on: se instala en
 // Configuración → Integraciones, y solo entonces aparecen el panel lateral y el botón del add-on.
+// Los pacientes son de la estación: los del cupo activo (Configuración → Cupo / centro).
 
 function parseHash() {
   const [seg, id] = window.location.hash.replace(/^#\/?/, "").split("/");
   if (seg === "paciente" && id) return { vista: "historia", id: decodeURIComponent(id) };
-  if (seg === "configuracion") return { vista: "integraciones" };
+  if (seg === "configuracion") return { vista: "configuracion" };
   return { vista: "historia", id: null };
 }
 
@@ -35,11 +37,12 @@ function Pestana({ href, activa, icono: Icono, children }) {
 
 export default function App() {
   const [ruta, setRuta] = useState(parseHash);
+  const [cupos, setCupos] = useState({ data: null, error: null }); // cupos de la estación y cuál está activo
   const [agenda, setAgenda] = useState({ data: null, error: null });
   const [instalacion, setInstalacion] = useState(leerInstalacion); // null = ningún add-on instalado
   const [estadoAddon, setEstadoAddon] = useState(null); // { responde } según el último contacto con el add-on
   const [avisoOculto, setAvisoOculto] = useState(false);
-  const [modal, setModal] = useState(false);
+  const [modal, setModal] = useState(null); // null | "cupo" (página principal del add-on) | "ficha" (ficha del paciente abierto)
 
   useEffect(() => {
     const onHash = () => {
@@ -52,11 +55,22 @@ export default function App() {
 
   useEffect(() => {
     const ctrl = new AbortController();
+    cargarCupos(ctrl.signal)
+      .then((data) => setCupos({ data, error: null }))
+      .catch((e) => e.name !== "AbortError" && setCupos({ data: null, error: e.message }));
+    return () => ctrl.abort();
+  }, []);
+
+  // La agenda es la del cupo activo: se vuelve a leer al cambiar de cupo.
+  const cupoActivo = cupos.data?.activo ?? null;
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setAgenda({ data: null, error: null });
     cargarAgenda(ctrl.signal)
       .then((data) => setAgenda({ data, error: null }))
       .catch((e) => e.name !== "AbortError" && setAgenda({ data: null, error: e.message }));
     return () => ctrl.abort();
-  }, []);
+  }, [cupoActivo]);
 
   const informarEstado = useCallback((estado) => {
     setEstadoAddon(estado);
@@ -84,14 +98,21 @@ export default function App() {
   const quitarAddon = useCallback(() => {
     desinstalar();
     setInstalacion(null);
-    setModal(false);
+    setModal(null);
   }, []);
-  const cerrarModal = useCallback(() => setModal(false), []);
-  const abrirModal = useCallback(() => setModal(true), []);
+  const cerrarModal = useCallback(() => setModal(null), []);
+  // El botón de la barra de herramientas abre la página principal del add-on (alertas, «Hoy» y cupo);
+  // el enlace de la tarjeta del panel abre la ficha del paciente.
+  const abrirCupo = useCallback(() => setModal("cupo"), []);
+  const abrirFicha = useCallback(() => setModal("ficha"), []);
+  const cambiarCupo = useCallback((data) => setCupos({ data, error: null }), []);
 
   const abierto = ruta.vista === "historia" ? ruta.id : null;
   const pacienteAbierto = abierto ? (agenda.data?.pacientes.find((p) => p.id === abierto) ?? { id: abierto, nombre: abierto }) : null;
   const addon = instalacion ? nombreAddon(instalacion) : null;
+  const cupo = cupos.data?.cupos.find((c) => c.id === cupoActivo) ?? null;
+  // Paciente de ejemplo para abrir desde la pantalla inicial: José Fernández (P003) si está en el cupo activo
+  const ejemplo = agenda.data?.pacientes.find((p) => p.id === "P003") ?? agenda.data?.pacientes[0] ?? null;
   const caido = instalacion && estadoAddon?.responde === false;
 
   return (
@@ -109,14 +130,14 @@ export default function App() {
             <Pestana href="#/" activa={ruta.vista === "historia"} icono={CalendarDays}>
               Agenda
             </Pestana>
-            <Pestana href="#/configuracion/integraciones" activa={ruta.vista === "integraciones"} icono={Settings}>
+            <Pestana href="#/configuracion" activa={ruta.vista === "configuracion"} icono={Settings}>
               Configuración
             </Pestana>
             {instalacion?.app && (
               <button
                 type="button"
-                onClick={abrirModal}
-                title={`Abrir ${addon} con ${pacienteAbierto ? `el paciente ${pacienteAbierto.id}` : "el cupo"} (add-on instalado)`}
+                onClick={abrirCupo}
+                title={`Abrir la página principal de ${addon}: alertas, lista «Hoy» y prioridades del cupo`}
                 className="ml-2 inline-flex h-9 items-center gap-1.5 rounded bg-teal-600 px-3 text-sm font-semibold text-white ring-1 ring-inset ring-teal-300/40 hover:bg-teal-500"
               >
                 <HeartPulse className="size-4" aria-hidden="true" />
@@ -136,7 +157,16 @@ export default function App() {
         </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-slate-300 bg-white px-4 py-1.5 text-xs text-slate-600">
           <span>Fecha de la simulación: {agenda.data ? fecha(agenda.data.fecha) : "—"}</span>
-          <span>Pacientes del cupo: {agenda.data ? agenda.data.pacientes.length : "—"}</span>
+          <span className="flex items-center gap-1.5">
+            <Building2 className="size-3.5" aria-hidden="true" />
+            {cupo ? (
+              <>
+                Cupo activo: <strong className="font-semibold text-slate-900">{cupo.nombre}</strong> · {cupo.centro} · {num(cupo.pacientes)} pacientes
+              </>
+            ) : (
+              "Cupo activo: —"
+            )}
+          </span>
           <span className="flex items-center gap-1.5">
             <PlugZap className="size-3.5" aria-hidden="true" />
             {instalacion ? (
@@ -176,14 +206,21 @@ export default function App() {
       </header>
 
       <main className="px-4 pb-16 pt-4">
-        {ruta.vista === "integraciones" ? (
-          <Integraciones
-            instalacion={instalacion}
-            estadoAddon={estadoAddon}
-            onInstalada={setInstalacion}
-            onDesinstalar={quitarAddon}
-            onEstadoAddon={informarEstado}
-          />
+        {ruta.vista === "configuracion" ? (
+          <div className="mx-auto max-w-4xl space-y-5">
+            <div>
+              <p className="text-sm text-slate-500">Configuración</p>
+              <h1 className="text-xl font-semibold text-slate-900">Configuración de la estación</h1>
+            </div>
+            <CupoCentro cupos={cupos} onCambio={cambiarCupo} />
+            <Integraciones
+              instalacion={instalacion}
+              estadoAddon={estadoAddon}
+              onInstalada={setInstalacion}
+              onDesinstalar={quitarAddon}
+              onEstadoAddon={informarEstado}
+            />
+          </div>
         ) : (
           <div
             className={`mx-auto grid max-w-[1500px] items-start gap-3 lg:grid-cols-[15rem_minmax(0,1fr)] ${
@@ -196,7 +233,7 @@ export default function App() {
                 <Historia id={abierto} />
                 {instalacion && (
                   <div className="lg:col-start-2 xl:sticky xl:top-28 xl:col-start-3 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
-                    <PanelCds id={abierto} instalacion={instalacion} onAbrirAddon={abrirModal} onEstadoAddon={informarEstado} />
+                    <PanelCds id={abierto} instalacion={instalacion} onAbrirAddon={abrirFicha} onEstadoAddon={informarEstado} />
                   </div>
                 )}
               </>
@@ -214,17 +251,22 @@ export default function App() {
                     <>Esta estación no tiene ningún add-on de apoyo a la decisión instalado: solo muestra la historia clínica.</>
                   )}
                 </p>
-                <a href="#/paciente/P003" className="mt-4 inline-flex items-center gap-1.5 rounded bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-800">
-                  Abrir a José Fernández (P003)
-                  <ArrowRight className="size-4" aria-hidden="true" />
-                </a>
+                {ejemplo && (
+                  <a
+                    href={`#/paciente/${encodeURIComponent(ejemplo.id)}`}
+                    className="mt-4 inline-flex items-center gap-1.5 rounded bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-800"
+                  >
+                    Abrir a {ejemplo.nombre} ({ejemplo.id})
+                    <ArrowRight className="size-4" aria-hidden="true" />
+                  </a>
+                )}
               </div>
             )}
           </div>
         )}
       </main>
 
-      {modal && instalacion?.app && <ModalAddon instalacion={instalacion} paciente={pacienteAbierto} onCerrar={cerrarModal} />}
+      {modal && instalacion?.app && <ModalAddon instalacion={instalacion} paciente={pacienteAbierto} vista={modal} onCerrar={cerrarModal} />}
     </div>
   );
 }

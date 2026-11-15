@@ -17,7 +17,7 @@ from connectors.fhir_remote_connector import ETIQUETA, SISTEMA_ETIQUETA, ErrorFh
 from engine import RiskEngine
 
 ARREL = Path(__file__).resolve().parent.parent
-DADES = ARREL / "data" / "synthetic" / "fhir"
+DADES = ARREL / "simulador" / "datos" / "demo" / "fhir"
 AVUI = date(2026, 11, 13)
 sys.path.insert(0, str(ARREL / "scripts"))
 import upload_to_fhir  # noqa: E402

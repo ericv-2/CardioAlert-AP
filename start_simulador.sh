@@ -8,8 +8,8 @@ if ! command -v npm >/dev/null 2>&1; then
   echo "[ERROR] No se encuentra npm. Instale Node.js 20 o superior: https://nodejs.org" >&2
   exit 1
 fi
-if [ ! -f data/synthetic/fhir/P001.json ]; then
-  echo "[ERROR] Faltan los datos sintéticos (data/synthetic/fhir). Ejecute: python scripts/generate_patients.py" >&2
+if [ ! -f simulador/datos/demo/fhir/P001.json ]; then
+  echo "[ERROR] Faltan los datos sintéticos (simulador/datos/demo/fhir). Ejecute: python scripts/generate_patients.py" >&2
   exit 1
 fi
 if [ ! -d simulador/node_modules/vite ]; then

@@ -44,8 +44,8 @@ from engine.risk_engine import ARREL, CONFIG_DEFECTE, GRUPS_ORDRE, NOM_EQUACIO
 from . import cds_hooks
 from .rules_store import ErrorValidacio, RulesStore
 
-DADES_LOCALS = ARREL / "data" / "synthetic" / "fhir"
-DADES_REALISTA = ARREL / "data" / "realista" / "csv"  # cohort realista: només local, mai al servidor remot
+DADES_LOCALS = ARREL / "simulador" / "datos" / "demo" / "fhir"
+DADES_REALISTA = ARREL / "simulador" / "datos" / "realista" / "csv"  # cohort realista: només local, mai al servidor remot
 Font = Literal["local", "remote"]
 Escala = Literal["score2", "regicor", "totes_dues"]
 Cohort = Literal["demo", "realista"]

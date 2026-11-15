@@ -18,7 +18,7 @@ from model.formules import ckd_epi_2009, edat_en
 from scripts import cohort_realista as cr
 
 ARREL = Path(__file__).resolve().parent.parent
-DADES = ARREL / "data" / "realista"
+DADES = ARREL / "simulador" / "datos" / "realista"
 N = 1500
 
 
@@ -77,9 +77,9 @@ def test_fhir_i_csv_donen_el_mateix(connector):
 
 
 def test_nomes_local_no_es_puja_al_servidor_public():
-    """L'script de pujada només llegeix data/synthetic (la cohort demo): la realista no surt de l'ordinador."""
+    """L'script de pujada només llegeix simulador/datos/demo (la cohort demo): la realista no surt de l'ordinador."""
     text = (ARREL / "scripts" / "upload_to_fhir.py").read_text(encoding="utf-8")
-    assert 'CARPETA = ARREL / "data" / "synthetic" / "fhir"' in text and "realista" not in text
+    assert 'CARPETA = ARREL / "simulador" / "datos" / "demo" / "fhir"' in text and "realista" not in text
 
 
 # --- Demografia -----------------------------------------------------------------------------

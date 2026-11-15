@@ -60,7 +60,7 @@ def main(argv: list[str]) -> None:
         print(f"Excel de revisión escrito: {exporta_revisio(args.rules_excel or CAMI_REVISIO)}")
         return
 
-    motor = RiskEngine(FhirConnector(ARREL / "data" / "synthetic" / "fhir"), escala=args.escala)
+    motor = RiskEngine(FhirConnector(ARREL / "simulador" / "datos" / "demo" / "fhir"), escala=args.escala)
     if args.pacient:
         print(motor.avalua(args.pacient).nota_clinica_auto)
         return

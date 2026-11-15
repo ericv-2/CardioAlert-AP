@@ -20,7 +20,7 @@ ARREL = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(scope="module")
 def cupo():
-    return RiskEngine(FhirConnector(ARREL / "data" / "synthetic" / "fhir")).avalua_cupo()
+    return RiskEngine(FhirConnector(ARREL / "simulador" / "datos" / "demo" / "fhir")).avalua_cupo()
 
 
 def test_excel_complet_i_sense_truncar(cupo, tmp_path):

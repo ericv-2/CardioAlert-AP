@@ -10,8 +10,8 @@ if errorlevel 1 (
   echo [ERROR] No se encuentra npm.cmd. Instale Node.js 20 o superior: https://nodejs.org
   exit /b 1
 )
-if not exist "data\synthetic\fhir\P001.json" (
-  echo [ERROR] Faltan los datos sinteticos ^(data\synthetic\fhir^). Ejecute: python scripts\generate_patients.py
+if not exist "simulador\datos\demo\fhir\P001.json" (
+  echo [ERROR] Faltan los datos sinteticos ^(simulador\datos\demo\fhir^). Ejecute: python scripts\generate_patients.py
   exit /b 1
 )
 if not exist "simulador\node_modules\.bin\vite.cmd" (

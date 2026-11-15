@@ -1,5 +1,6 @@
 // Integración de la estación con un add-on de apoyo a la decisión, solo por estándares:
 //   - HL7 CDS Hooks: discovery (GET {url}/cds-services) al instalar y hook patient-view al abrir un paciente.
+//     La petición lleva `fhirServer` (el servidor FHIR de la estación): el add-on lee de ahí los datos.
 //   - Lanzamiento de la interfaz del add-on con el paciente y el profesional como contexto
 //     (simula un "EHR launch" de SMART on FHIR, sin OAuth).
 // La estación no sabe nada del add-on más allá de su URL: todo lo demás lo aprende del discovery.
@@ -152,9 +153,14 @@ function base64url(texto) {
 }
 
 // Contexto que la estación entrega al add-on. En SMART on FHIR real llegaría en la respuesta del token.
-export function contextoLanzamiento(pacienteId) {
+// `intent` (parámetro de contexto de SMART) dice qué pantalla del add-on se quiere abrir: la página principal
+// ("lista-trabajo": alertas, «Hoy» y cupo) o la ficha del paciente en contexto ("ficha-paciente").
+export const INTENT = { cupo: "lista-trabajo", ficha: "ficha-paciente" };
+
+export function contextoLanzamiento(pacienteId, vista = "cupo") {
   return {
     patient: pacienteId ?? null,
+    intent: pacienteId && vista === "ficha" ? INTENT.ficha : INTENT.cupo,
     fhirUser: PROFESIONAL.id,
     practitioner: { name: PROFESIONAL.nombre, role: PROFESIONAL.rol },
     ehr: ESTACION,
@@ -162,8 +168,9 @@ export function contextoLanzamiento(pacienteId) {
   };
 }
 
-export function urlLanzamiento(instalacion, pacienteId) {
-  const q = new URLSearchParams({ iss: fhirBase(), launch: base64url(JSON.stringify(contextoLanzamiento(pacienteId))) });
+// `iss` es la dirección del servidor FHIR de la estación: de ahí lee el add-on los datos de los pacientes.
+export function urlLanzamiento(instalacion, pacienteId, vista = "cupo") {
+  const q = new URLSearchParams({ iss: fhirBase(), launch: base64url(JSON.stringify(contextoLanzamiento(pacienteId, vista))) });
   return `${instalacion.app.launchUrl}/?${q}`;
 }
 

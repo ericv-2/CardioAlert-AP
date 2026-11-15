@@ -8,7 +8,7 @@ agregades, estratificades per edat i sexe, s'acostin a:
 - Malaltia renal crònica: estudi ENRICA (Gorostidi et al., Nefrología 2018, doi 10.1016/j.nefro.2018.04.004).
 
 Tots els paràmetres són a config/cohort_realista.yaml; fonts i resultats a docs/cohort_realista.md.
-Sortida: data/realista/fhir, data/realista/csv i data/realista/veritat.csv (el que el generador "sap" de
+Sortida: simulador/datos/realista/fhir, simulador/datos/realista/csv i simulador/datos/realista/veritat.csv (el que el generador "sap" de
 cada pacient: MRC real, tipus, si està diagnosticada...). NOMÉS EN LOCAL: no es puja a cap servidor.
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ from scripts.generate_patients import (  # noqa: E402
     COGNOMS, DATA_REF, INICI, NOMS_D, NOMS_H, ORIGEN_AP, ORIGEN_HOSPITAL, _feiner, diagnostic, medicacio)
 
 CONFIG = ARREL / "config" / "cohort_realista.yaml"
-SORTIDA = ARREL / "data" / "realista"
+SORTIDA = ARREL / "simulador" / "datos" / "realista"
 ALTRES_COMUNITATS = ["DIRAYA - Andalucía", "SERGAS - Galicia", "Osabide - Euskadi", "Abucasis - Comunitat Valenciana"]
 FACTORS = ("hta", "dm2", "dislipemia", "fumador")
 IMC_OBESITAT = 30.0
